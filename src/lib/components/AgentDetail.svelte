@@ -5,7 +5,7 @@
   import StatusBadge from "./StatusBadge.svelte";
   import TaskRow from "./TaskRow.svelte";
   import ActivityRow from "./ActivityRow.svelte";
-  import { app, closeSheet, openSheet, openTask } from "../state/app.svelte.ts";
+  import { app, closeSheet, loadPolicy, openSheet, openTask } from "../state/app.svelte.ts";
   import { activityFiltered, agentById, modelLabel, projectById, recentTasks, taskById } from "../selectors.ts";
   import { assemblePrompt } from "../prompts.ts";
   import { findAgentPrompt, handoffContract, memoryProposalContract } from "../prompt-files.ts";
@@ -35,6 +35,11 @@
       handoff: rolePrompt.meta.kind === "specialist" ? handoffContract : null,
       memoryProposal: rolePrompt.meta.kind === "memory" ? memoryProposalContract : null,
     });
+  });
+
+  $effect(() => {
+    const projectId = agent?.projectIds[0];
+    if (projectId && app.policyProjectId !== projectId) loadPolicy(projectId);
   });
 </script>
 
