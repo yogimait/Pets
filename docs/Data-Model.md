@@ -1,6 +1,6 @@
 # Data-Model
 
-One `Snapshot` object feeds the whole interface. Types live in `src/lib/types.ts`; fixtures in `src/lib/data/`; the only entry point is `loadSnapshot()` in `src/lib/data/provider.ts`.
+`Snapshot` contains the mock workforce only. OpenCode sessions, messages, permissions, and runtime status live outside the snapshot in the Rust runtime adapter and are not persisted by the app yet.
 
 ## Shape
 

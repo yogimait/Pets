@@ -2,6 +2,7 @@
   import Panel from "../components/Panel.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
   import Avatar from "../components/Avatar.svelte";
+  import RuntimePanel from "../components/RuntimePanel.svelte";
   import { modelLabel } from "../selectors.ts";
   import { app, loadPolicy, reloadPolicy } from "../state/app.svelte.ts";
   import { fullTimestamp } from "../format.ts";
@@ -30,7 +31,7 @@
 <div class="space-y-5">
   <div>
     <h1 class="text-[18px] font-medium tracking-[-0.01em] text-ink">Settings</h1>
-    <p class="mt-1 text-[11.5px] text-ink-3">Read-only in this build. Configuration becomes editable when the backend exists.</p>
+    <p class="mt-1 text-[11.5px] text-ink-3">Workspace data is still mock. The OpenCode runtime panel is live.</p>
   </div>
 
   <Panel title="Data source" subtitle="Interface only">
@@ -39,8 +40,8 @@
       <div>
         <p class="text-[11.5px] text-ink">Local mock snapshot</p>
         <p class="mt-1 text-[10.5px] leading-relaxed text-ink-3">
-          Every agent, task, activity event, and memory entry on screen comes from one typed fixture file set. Nothing is
-          persisted, scheduled, or sent over the network.
+          Every agent, task, activity event, and memory entry on the mock screens comes from one typed fixture set.
+          The OpenCode runtime panel below is separate and can start real model sessions.
         </p>
       </div>
     </div>
@@ -49,9 +50,9 @@
         <span class="text-ink-4">Provider seam</span> ·
         <span class="font-mono text-ink-2">src/lib/data/provider.ts</span> is the only file that changes for a real backend.
       </li>
-      <li><span class="text-ink-4">Orchestrator</span> · replies are scripted from the same snapshot after a fixed delay.</li>
-      <li><span class="text-ink-4">Persistence</span> · none. Reloading the window resets the conversation and all state.</li>
-      <li><span class="text-ink-4">Agents</span> · no subprocess, model call, or tool execution exists behind any agent card.</li>
+      <li><span class="text-ink-4">Orchestrator</span> · the overlay is scripted. The OpenCode runtime panel starts real sessions separately.</li>
+      <li><span class="text-ink-4">Persistence</span> · app state is not persisted. OpenCode sessions live outside the app.</li>
+      <li><span class="text-ink-4">Agents</span> · cards and task data remain mock. A real session can be started below.</li>
     </ul>
   </Panel>
 
@@ -114,6 +115,8 @@
       </p>
     </div>
   </Panel>
+
+  <RuntimePanel />
 
   <Panel title="Providers and models" subtitle={`${configuredCount} of ${snapshot.providers.length} configured`} padded={false}>
     <div class="overflow-x-auto">

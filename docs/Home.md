@@ -7,7 +7,7 @@ Agent Bots is a local-first desktop control center for a personal AI workforce. 
 
 ## Current state
 
-The app is an interface preview. It has no model calls, no backend, no persistence, and no live agents. Every workforce surface carries a visible demo marker. The data seam that a backend will replace is [documented here](Architecture.md#provider-seam). The prompt registry and policy reader are implemented; the runtime is not.
+The app is an interface preview for workforce data. It has no backend for agents, tasks, projects, or memory, and no live agent cards. The OpenCode runtime panel in Settings is live: it can start a real local OpenCode session, stream its messages by polling, and reply to permission requests. The orchestrator overlay remains scripted.
 
 ## Run
 

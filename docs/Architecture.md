@@ -54,6 +54,23 @@ shared contract
 
 The runtime does not yet enforce policy availability, but the interface exposes the state and tests assert layer order.
 
+## OpenCode runtime
+
+The app treats OpenCode as the execution harness. It does not implement its own model/tool loop or MCP client.
+
+- `src-tauri/src/opencode.rs` starts a local `opencode serve` child on a free loopback port in the range 4097 to 4197, with a generated server password. If `OPENCODE_SERVER_PASSWORD` is set, the app attaches to a matching service instead.
+- The child is killed with its process tree on stop or app exit.
+- The adapter wraps health, agents, models, sessions, prompt, abort, messages, permission requests, permission replies, and MCP status.
+- The renderer never receives the server password and never starts the process.
+- The runtime panel in Settings can connect, list built-in agents and tool-capable models, start a real session, display messages and tool calls, reply to permission requests, and abort.
+
+Current limitations:
+
+- Message and permission updates are polled, not streamed from the OpenCode event bus.
+- Sessions are not linked to app tasks yet.
+- Custom project agents are not synced into `.opencode/agents` yet, so the panel currently shows built-in OpenCode agents.
+- Runtime state is not persisted after app restart.
+
 ## Provider seam
 
 `src/lib/data/provider.ts` exports one function:

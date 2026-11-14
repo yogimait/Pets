@@ -1,3 +1,6 @@
+mod opencode;
+
+use opencode::OpenCodeState;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -122,6 +125,7 @@ fn open_record(app: tauri::AppHandle, kind: String, id: String) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(OpenCodeState::new())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Backquote);
@@ -138,7 +142,18 @@ pub fn run() {
             open_orchestrator,
             hide_orchestrator,
             open_record,
-            read_policy
+            read_policy,
+            opencode::runtime_info,
+            opencode::runtime_agents,
+            opencode::runtime_models,
+            opencode::runtime_mcp,
+            opencode::runtime_create_session,
+            opencode::runtime_prompt,
+            opencode::runtime_abort,
+            opencode::runtime_messages,
+            opencode::runtime_permissions,
+            opencode::runtime_reply_permission,
+            opencode::runtime_stop
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -79,14 +79,16 @@ Implemented:
 - Rust policy reader for global and project `AGENTS.md`
 - policy path, hash, byte count, and reload control in Settings
 - assembled prompt preview in Agent detail
-- 18 invariant and prompt tests
+- 22 invariant, prompt, and runtime-format tests
+- first-slice OpenCode runtime adapter: health, agents, models, sessions, prompt, messages, permissions, MCP status
 
 Not implemented:
 
-- runtime task routing
+- syncing app prompts into `.opencode/agents`
+- runtime task routing and acceptance checks
 - hard block when the global policy is missing
 - skill loading at runtime
-- live provider calls
-- persistence of policy snapshots
+- streaming OpenCode events
+- persistence of policy snapshots or sessions
 
 Related: [[Architecture]] · [[Design-System]] · [[Data-Model]] · [[Testing]]

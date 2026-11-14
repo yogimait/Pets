@@ -5,7 +5,7 @@
 | Command | Purpose | Current result |
 | --- | --- | --- |
 | `npm run check` | Svelte and TypeScript diagnostics | 0 errors, 0 warnings |
-| `npm test` | Dataset, selector, and prompt invariants | 18 tests pass |
+| `npm test` | Dataset, selector, prompt, and runtime-format invariants | 22 tests pass |
 | `npm run build` | Production renderer bundle | Passes, about 172 KB JS / 27 KB CSS |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust shell type check | Passes |
 | `npx tauri build` | Signed/bundled release | Not yet run in this phase |
@@ -33,7 +33,9 @@
 17. The orchestrator routes every specialist.
 18. Agent `promptId` values resolve.
 
-The tests import fixtures, pure selectors, and pure prompt functions directly from `src/`. No DOM, no Tauri, no network.
+The tests import fixtures, pure selectors, prompt functions, and runtime formatters directly from `src/`. No DOM, no Tauri, no network.
+
+Runtime formatting tests cover user/assistant/tool normalization, malformed entries, permission normalization, and model key encoding.
 
 ## Manual verification
 
@@ -49,6 +51,9 @@ The renderer was exercised at 1440x900 and 1080x720 through Playwright. The desk
 - Settings loads the global policy from `C:\Users\Hp\.config\opencode\AGENTS.md` with its byte count and hash; the project policy loads from the selected project root.
 - Agent detail shows the assembled prompt with the global policy, project policy, role prompt, and the correct shared contract.
 - A pending memory proposal opens, shows evidence and confidence, and can be approved or rejected for the session.
+- Settings connects to a real OpenCode `2.1.3` service, lists built-in agents and tool-capable models, starts a real session, and shows the reply and tool calls.
+- A shell permission request appears in the runtime panel; allowing it runs the command and shows the output.
+- The simplified Overview shows a three-stat strip, active work, and recent activity without the previous card grid.
 - Layout drops secondary table columns and collapses overview panels at 1080 px; the main content uses the full width with no chat dock.
 
 Screenshots from that pass are in `work/` during development. They are not part of the app.
@@ -60,9 +65,11 @@ The Impeccable detector (`impeccable detect src --json`) reports zero findings o
 - No component-level or DOM test runner. The invariant harness covers data, not interaction.
 - No visual regression baseline.
 - No automated accessibility audit yet. Keyboard and focus behavior were checked manually.
-- No automated Tauri IPC test. The four app commands and the global shortcut were verified manually through WebView2 CDP.
+- No automated Tauri IPC test. The app commands, global shortcut, and OpenCode runtime adapter were verified manually through WebView2 CDP.
 - No test for the scripted responder beyond the invariant that its references resolve.
 - Prompt assembly is tested in the renderer; the runtime does not yet block a run when the global policy is missing.
+- Runtime message and permission updates use polling, not the OpenCode event stream.
+- Runtime sessions are not linked to app tasks yet, and custom agents are not synced into OpenCode.
 
 ## Invariant to keep
 

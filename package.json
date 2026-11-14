@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test tests/data.test.ts tests/prompts.test.ts",
+    "test": "node --test tests/data.test.ts tests/prompts.test.ts tests/runtime.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {

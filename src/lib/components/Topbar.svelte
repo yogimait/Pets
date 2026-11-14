@@ -23,7 +23,7 @@
   <div class="flex shrink-0 items-center gap-2">
     <span
       class="hidden items-center gap-1.5 rounded border border-line-soft bg-surface px-2 py-1 text-[10px] text-ink-3 sm:inline-flex"
-      title="Every value on screen comes from a local mock dataset. No agent or model is running."
+      title="Workforce data is mock. The OpenCode runtime panel in Settings can start real local sessions."
     >
       <span class="size-1 rounded-full bg-warn" aria-hidden="true"></span>
       Demo data

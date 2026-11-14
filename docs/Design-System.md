@@ -54,7 +54,8 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 | --- | --- |
 | Panel | 10 px radius, soft border, 40 px header, flush row content allowed |
 | Status badge | 1.5 px dot plus label, tinted border, never a filled pill |
-| Metric | Uppercase label, 22 px tabular value, one hint line |
+| Overview | Header, three-stat strip, active work, recent activity. No dashboard card grid. |
+| Metrics | One divided strip, not four separate cards. |
 | Avatar | Two-letter monogram, neutral raised square; accent border only for the orchestrator |
 | Sheet | Focused close button, Tab trap, Escape closes, focus returns to trigger |
 | Palette | 560 px panel, arrow navigation, accent left bar on the active row |
