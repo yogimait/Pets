@@ -186,11 +186,27 @@ Two running tasks maximum, one per owner. Test tasks were removed afterward.
 ### SSE event bridge
 
 - Rust subscribes to OpenCode `/api/event` with loopback basic auth.
-- The runtime log recorded `SSE connected`.
+- The runtime log records `SSE connected` and each forwarded event as `SSE event <type> session=<id>`.
 - Session/message/permission events are filtered and emitted as `workforce-event`.
 - Frontend sync debounces the event by 150ms, then runs tick + poll.
 - 15-second polling remains as fallback because the OpenCode stream is volatile.
 - A Plan-created task started 5.8s after creation, below the 15-second fallback, consistent with event-driven start.
+
+To inspect it:
+
+```powershell
+Get-Content "$env:TEMP\agent-bots-runtime.log" -Tail 30
+```
+
+Expected at minimum:
+
+```text
+SSE connected
+SSE event server.connected session=-
+SSE event session.created session=ses_...
+```
+
+OpenCode may not emit every declared event type. If `session.idle` is missing, the 15-second fallback closes the task.
 
 SSE reconnect under long active turns and event loss across disconnects are not load-tested.
 

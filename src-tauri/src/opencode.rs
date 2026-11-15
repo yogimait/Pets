@@ -350,9 +350,14 @@ async fn event_stream_once(app: &AppHandle, target: &SharedTarget) -> Result<(),
             if !is_sync_event(event_type) {
                 continue;
             }
+            let session_id = event_session_id(&value);
+            debug_log(&format!(
+                "SSE event {event_type} session={}",
+                session_id.as_deref().unwrap_or("-")
+            ));
             let payload = json!({
                 "type": event_type,
-                "sessionId": event_session_id(&value),
+                "sessionId": session_id,
             });
             let _ = app.emit("workforce-event", payload);
         }
