@@ -63,7 +63,7 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 | Chat overlay | Black `#050505`, 1 px `#3d3d3d` border, zero radius, role labels in uppercase mono, no bubbles, green square only for the simulated marker |
 | Assistant output | Safe Markdown subset: headings, paragraphs, lists, fenced code, inline code, bold, quotes, rules, and bordered tables. Raw HTML renders as text. Tables wrap; no horizontal page overflow. |
 | Task form | Right sheet; project, owner, title, description, acceptance, priority, and start-now checkbox. Backend validates and returns the authoritative snapshot. |
-| Pets | Nine independent 56x80 pixel sprites; transparent background; drag to reposition; idle and working movement zones; shared comic speech bubble with name, role, status, current task, and latest activity. |
+| Pets | Nine independent 56x80 pixel sprites; transparent background; drag surface is exactly the sprite, not the transparent window margin; idle and working movement zones; shared comic speech bubble with name, role, status, current task, and latest activity. |
 
 ## Motion
 

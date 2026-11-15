@@ -73,7 +73,7 @@
     onpointercancel={pointerCancel}
     oncontextmenu={(event) => event.preventDefault()}
     aria-label={`Talk to ${pet.name}`}
-    class="grid h-screen w-screen cursor-grab touch-none place-items-end bg-transparent p-0 active:cursor-grabbing"
+    class="fixed right-0 bottom-0 block h-[80px] w-[56px] cursor-grab touch-none bg-transparent p-0 active:cursor-grabbing"
   >
     <img
       class="pet-sprite block h-[80px] w-[56px] select-none object-contain [image-rendering:pixelated]"

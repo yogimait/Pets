@@ -289,7 +289,10 @@ fn show_pet_bubble(
     let min_y = origin.y;
     let max_x = origin.x + area.width as i32 - bubble_size.width as i32 - 8;
     let max_y = origin.y + area.height as i32 - bubble_size.height as i32 - 8;
-    let x = (position.x + pet_size.width as i32 / 2 - bubble_size.width as i32 / 2).clamp(min_x, max_x);
+    let scale = pet.scale_factor().unwrap_or(1.0);
+    let sprite_width = (56.0 * scale) as i32;
+    let sprite_center = position.x + pet_size.width as i32 - sprite_width / 2;
+    let x = (sprite_center - bubble_size.width as i32 / 2).clamp(min_x, max_x);
     let mut y = position.y - bubble_size.height as i32 + 16;
     if y < min_y {
         y = position.y + pet_size.height as i32 - 16;

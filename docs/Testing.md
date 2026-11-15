@@ -294,6 +294,7 @@ Opened the pets from the main topbar.
 - no visible frame or box
 - each agent has a distinct idle area and working area
 - idle pets wander slowly with pauses; active pets move faster around the work area
+- drag/hover surface is exactly the 56x80 sprite; the transparent window margin does not start a drag or show the bubble
 - drag Micheal from the lower desktop to an upper position: the window followed the pointer, stayed at the drop point, then wandered around that new anchor
 - started a real Live Test task owned by Scout: Ryan moved from his idle area to the work area while the task was active, returned after review, and the task was accepted as done
 - hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
