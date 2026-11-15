@@ -51,6 +51,7 @@ See [[First-Draft]] for the operator walkthrough.
 ## Docs
 
 - [[Architecture]] - control plane, OpenCode bridge, scheduler, security.
+- [[Workflow]] - task lifecycle, chat vs Plan, approvals, progress, models.
 - [[First-Draft]] - how to operate the current build.
 - [[Agent-Prompts]] - role prompts, sync, routing, policy precedence.
 - [[Data-Model]] - SQLite snapshot, entities, invariants.
