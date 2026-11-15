@@ -1,5 +1,5 @@
 use crate::opencode::OpenCodeState;
-use crate::{global_policy_path, now_ms};
+use crate::{devvault_path, global_policy_path, now_ms};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -2011,6 +2011,14 @@ fn task_prompt(snapshot: &Value, project: &Value, task: &Value, agent_id: &str) 
     };
     let agent_policy = strip_frontmatter(&agent_policy);
     let project_id = task.get("projectId").and_then(Value::as_str).unwrap_or("");
+    let project_name = project
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(project_id);
+    let vault = devvault_path();
+    let hub_note = vault
+        .join("Projects")
+        .join(format!("{}.md", project_name.replace(' ', "-")));
     let memory = memory_context(snapshot, project_id, 8);
     let handoff = handoff_contract(repo);
     let acceptance = task
@@ -2018,7 +2026,7 @@ fn task_prompt(snapshot: &Value, project: &Value, task: &Value, agent_id: &str) 
         .and_then(Value::as_str)
         .unwrap_or("No acceptance criteria recorded.");
     format!(
-        "# Global policy\n\n{global}\n\n# Project policy\n\n{project_policy}\n\n# Agent policy\n\n{agent_policy}\n\n# Task\n\nid: {id}\ntitle: {title}\ndescription: {description}\nacceptance: {acceptance}\n\n# Approved project memory\n\n{memory}\n\n# Handoff contract\n\n{handoff}\n\nWork only inside {repo}. Report what changed, the exact checks run, and what was not checked.",
+        "# Global policy\n\n{global}\n\n# Project policy\n\n{project_policy}\n\n# Agent policy\n\n{agent_policy}\n\n# Task\n\nid: {id}\ntitle: {title}\ndescription: {description}\nacceptance: {acceptance}\n\n# Approved project memory\n\n{memory}\n\n# DevVault\n\nVault: {vault}\nHome: {home}\nProject hub: {hub}\n\nThe global policy requires DevVault updates after meaningful work. If this task changes architecture, behavior, APIs, data, configuration, verified commands, or reusable components, update the project hub note, its row in DevVault/Home.md, and the matching project docs before finishing. Read the existing note first; link to project docs instead of copying them. Do not touch DevVault for read-only or no-change work.\n\n# Handoff contract\n\n{handoff}\n\nWork only inside {repo}. Report what changed, the exact checks run, and what was not checked.",
         global = none_if_empty(&global_policy),
         project_policy = none_if_empty(&project_policy),
         agent_policy = none_if_empty(&agent_policy),
@@ -2026,6 +2034,9 @@ fn task_prompt(snapshot: &Value, project: &Value, task: &Value, agent_id: &str) 
         title = task.get("title").and_then(Value::as_str).unwrap_or(""),
         description = task.get("description").and_then(Value::as_str).unwrap_or(""),
         memory = none_if_empty(&memory),
+        vault = vault.display(),
+        home = vault.join("Home.md").display(),
+        hub = hub_note.display(),
         handoff = none_if_empty(&handoff)
     )
 }

@@ -7,6 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const agentsDir = join(root, ".opencode", "agents");
 const globalDir =
   process.env.AGENT_BOTS_GLOBAL_AGENT_DIR ?? join(homedir(), ".config", "opencode", "agent");
+const devVaultDir = process.env.DEVVAULT_PATH ?? join(homedir(), "Obsidian", "DevVault");
 
 const expected = [
   "orchestrator-workforce",
@@ -50,6 +51,9 @@ for (const id of expected) {
   }
   if (!/resource: "\*Remove-Item\*"\s*\n\s*effect: deny/.test(raw)) {
     failures.push(`${id}: destructive Remove-Item shell command must be denied`);
+  }
+  if (!raw.includes(JSON.stringify(devVaultDir))) {
+    failures.push(`${id}: DevVault external directory must be allowed`);
   }
 
   const globalPath = join(globalDir, `${id}.md`);

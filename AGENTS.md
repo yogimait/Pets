@@ -37,6 +37,7 @@ This machine has limited free RAM. If a Tauri build fails with `only metadata st
 9. Update the matching doc when architecture, data shape, tokens, or verification changes.
 10. The global policy is read verbatim from `%USERPROFILE%\.config\opencode\AGENTS.md`. Do not copy it into prompts. Agent prompts live in `prompts/agents/`; keep each agent's `promptId` aligned with the prompt frontmatter.
 11. OpenCode is the execution harness. The app is the control plane. Do not add a second model/tool loop or MCP client. Runtime calls belong in `src-tauri/src/opencode.rs`; the renderer talks only to app commands.
+12. Task prompts carry the DevVault root, Home path, and project hub path; generated agents may access DevVault through the `external_directory` allow rule. Before committing meaningful work, update the project hub note, its Home row, and matching docs per global policy. Read-only/no-change tasks must not touch DevVault.
 
 ## Verification gate
 

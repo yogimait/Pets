@@ -57,6 +57,16 @@ pub(crate) fn global_policy_path() -> PathBuf {
         .join("AGENTS.md")
 }
 
+pub(crate) fn devvault_path() -> PathBuf {
+    if let Ok(path) = std::env::var("DEVVAULT_PATH") {
+        return PathBuf::from(path);
+    }
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    PathBuf::from(home).join("Obsidian").join("DevVault")
+}
+
 fn read_policy_file(path: &Path) -> PolicyFile {
     let display = path.display().to_string();
     match fs::read_to_string(path) {

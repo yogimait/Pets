@@ -103,7 +103,8 @@ The app does not implement a second model/tool loop. It attaches to the shared O
 - A session becomes review when `time.idle >= startedAt` or an outcome is set. A missing session or a run longer than 30 minutes becomes blocked.
 - Permissions: generated agent files allow workspace tools but deny questions, secrets, external directories, subagents, and obvious destructive commands. Task sessions do not add broader session permissions.
 - Model selection: `AGENT_BOTS_MODEL` as `provider/model`, otherwise `opencode-go/deepseek-v4.1-flash`.
-- The global `AGENTS.md` and project `AGENTS.md` must both exist before a real run. The task prompt includes both policies, the role prompt, approved project memory, acceptance criteria, and the handoff contract.
+- The global `AGENTS.md` and project `AGENTS.md` must both exist before a real run. The task prompt includes both policies, the role prompt, approved project memory, the DevVault root/Home/hub paths with the global maintenance rule, acceptance criteria, and the handoff contract.
+- Generated agents deny external directories except the DevVault root (`DEVVAULT_PATH`, default `%USERPROFILE%\Obsidian\DevVault`), so task agents can maintain their hub note and Home row as the global policy requires.
 - Settings > OpenCode runtime has a 30-second service timeout and a 35-second agent/MCP timeout. While connecting it shows Cancel. A stale child left by a previous crash may require restarting the app.
 
 ## Skills and MCP

@@ -46,6 +46,12 @@ permissions:
   - action: "external_directory"
     resource: "*"
     effect: deny
+  - action: "external_directory"
+    resource: "C:\\Users\\Hp\\Obsidian\\DevVault"
+    effect: allow
+  - action: "external_directory"
+    resource: "C:\\Users\\Hp\\Obsidian\\DevVault\\*"
+    effect: allow
   - action: "shell"
     resource: "rm -rf *"
     effect: deny

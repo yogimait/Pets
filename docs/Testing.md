@@ -183,6 +183,21 @@ Forge C: running
 
 Two running tasks maximum, one per owner. Test tasks were removed afterward.
 
+### DevVault maintenance access
+
+Verified that a task prompt contains:
+
+- the DevVault root
+- `DevVault/Home.md`
+- the project hub path
+- the rule to update them after meaningful work and not on read-only/no-change work
+
+A read-only Scout task read `C:\Users\Hp\Obsidian\DevVault\Projects\Agent-Bots.md` and returned `# Agent-Bots`.
+
+A second Scout task on `Live Test` made a small README change, created `DevVault/Projects/Live-Test.md`, and added a Live Test row to `DevVault/Home.md`. It reported the exact files changed, and no other DevVault notes were touched. The task was accepted.
+
+Generated agents allow `external_directory` for DevVault only. A meaningful update on a real code project has not yet been run.
+
 ### Security denials and hardening
 
 Chat probe:
@@ -245,6 +260,7 @@ The runtime panel shows a yellow dot for failed or pending MCP servers; hover th
 - Long-running concurrent tasks under model load.
 - Worktree isolation (not implemented).
 - Provider credential failure.
+- DevVault maintenance by a task on a real production codebase; the write test used `Live Test`.
 - Shell commands outside the current destructive-pattern list; pattern matching is not a sandbox.
 - Packaged installer flow; verification uses the `--no-bundle` release binary.
 

@@ -8,6 +8,7 @@ const sourceDir = join(root, "prompts", "agents");
 const targetDir = join(root, ".opencode", "agents");
 const globalDir =
   process.env.AGENT_BOTS_GLOBAL_AGENT_DIR ?? join(homedir(), ".config", "opencode", "agent");
+const devVaultDir = process.env.DEVVAULT_PATH ?? join(homedir(), "Obsidian", "DevVault");
 const model = process.env.AGENT_BOTS_AGENT_MODEL ?? "opencode-go/deepseek-v4.1-flash";
 
 const roles = [
@@ -87,6 +88,11 @@ const mcpAccess = [
   ["laya_*", "*", "allow"],
 ];
 
+const devVaultAccess = [
+  ["external_directory", devVaultDir, "allow"],
+  ["external_directory", `${devVaultDir}\\*`, "allow"],
+];
+
 const destructiveShell = [
   ["shell", "rm -rf *", "deny"],
   ["shell", "*Remove-Item*", "deny"],
@@ -115,6 +121,7 @@ const permissionSets = {
     ["subagent", "*", "deny"],
     ["question", "*", "deny"],
     ["external_directory", "*", "deny"],
+    ...devVaultAccess,
   ],
   "read-only": [
     ["*", "*", "allow"],
@@ -128,6 +135,7 @@ const permissionSets = {
     ["subagent", "*", "deny"],
     ["question", "*", "deny"],
     ["external_directory", "*", "deny"],
+    ...devVaultAccess,
   ],
   audit: [
     ["*", "*", "allow"],
@@ -139,6 +147,7 @@ const permissionSets = {
     ["subagent", "*", "deny"],
     ["question", "*", "deny"],
     ["external_directory", "*", "deny"],
+    ...devVaultAccess,
     ...destructiveShell,
   ],
   workspace: [
@@ -150,6 +159,7 @@ const permissionSets = {
     ["subagent", "*", "deny"],
     ["question", "*", "deny"],
     ["external_directory", "*", "deny"],
+    ...devVaultAccess,
     ...destructiveShell,
   ],
 };

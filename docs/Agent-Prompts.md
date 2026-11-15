@@ -51,7 +51,7 @@ Generated files are written to both `.opencode/agents/` and the global `%USERPRO
 - `mode: primary`
 - the configured model, default `opencode-go/deepseek-v4.1-flash`; set `AGENT_BOTS_AGENT_MODEL` before sync to change it
 - `steps: 24`
-- permissions that allow MCP tools and deny subagents, questions, `.env` reads, external directories, and obvious destructive shell commands
+- permissions that allow MCP tools and the DevVault external directory, and deny subagents, questions, `.env` reads, other external directories, and obvious destructive shell commands
 - the original role body plus a small app runtime note for the orchestrator
 
 Run `npm run sync:agents` after editing a prompt. Run `npm run check:agents` to validate.
@@ -66,6 +66,7 @@ project policy
 role prompt from project `.opencode/agents/<agent>.md`, falling back to the global agent file
 task id, title, description, acceptance
 approved project memory, latest 8 entries
+DevVault root, Home path, project hub path, and maintenance rule
 shared handoff contract
 working directory reminder
 ```
