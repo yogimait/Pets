@@ -376,6 +376,102 @@ pub fn workforce_create_project(
 }
 
 #[tauri::command]
+pub fn workforce_create_task(
+    store: State<'_, WorkforceStore>,
+    project_id: String,
+    title: String,
+    description: String,
+    owner_id: String,
+    priority: Option<String>,
+    acceptance: Option<String>,
+    auto_start: Option<bool>,
+) -> Result<Value, String> {
+    let store = store.inner();
+    let title = title.trim();
+    let description = description.trim();
+    if title.is_empty() {
+        return Err("Task title is required.".to_string());
+    }
+    if title.chars().count() > 120 {
+        return Err("Task title must be 120 characters or fewer.".to_string());
+    }
+    if description.is_empty() {
+        return Err("Task description is required.".to_string());
+    }
+    if description.chars().count() > 4_000 {
+        return Err("Task description must be 4000 characters or fewer.".to_string());
+    }
+    let project_id = project_id.trim();
+    let owner_id = owner_id.trim();
+    let snapshot = snapshot_value(store)?;
+    get_project(&snapshot, project_id)?;
+    let owners = available_owners(&snapshot);
+    if !owners.iter().any(|owner| owner == owner_id) {
+        return Err(format!("Unknown specialist owner: {owner_id}"));
+    }
+    let priority = match priority.as_deref().unwrap_or("normal") {
+        "low" => "low",
+        "high" => "high",
+        "critical" => "critical",
+        _ => "normal",
+    };
+    let acceptance = acceptance.unwrap_or_default().trim().to_string();
+    let at = now_ms();
+    store.update(|value| {
+        let existing_ids = value
+            .get("tasks")
+            .and_then(Value::as_array)
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .filter_map(|task| task.get("id").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut id = format!("t-{at}-manual");
+        let mut suffix = 0;
+        while existing_ids.iter().any(|existing| existing == &id) {
+            suffix += 1;
+            id = format!("t-{at}-manual-{suffix}");
+        }
+        let task = json!({
+            "id": id,
+            "title": title,
+            "description": description,
+            "status": "queued",
+            "priority": priority,
+            "projectId": project_id,
+            "ownerId": owner_id,
+            "notes": "",
+            "tags": ["manual"],
+            "createdAt": at,
+            "updatedAt": at,
+            "steps": [],
+            "messages": [],
+            "acceptance": acceptance,
+            "dependsOn": [],
+            "autoStart": auto_start.unwrap_or(false),
+            "sessionId": null,
+            "result": null
+        });
+        if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
+            tasks.push(task.clone());
+        }
+        push_activity(
+            value,
+            "delegation",
+            "orchestrator",
+            Some(project_id),
+            task.get("id").and_then(Value::as_str),
+            &format!("created manual task \"{title}\" for {owner_id}"),
+            Some(description),
+        );
+        Ok(())
+    })
+}
+
+#[tauri::command]
 pub async fn workforce_plan(
     store: State<'_, WorkforceStore>,
     runtime: State<'_, OpenCodeState>,

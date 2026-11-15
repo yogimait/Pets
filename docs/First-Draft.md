@@ -98,9 +98,6 @@ The app mediates all work. That is what keeps the workflow auditable and prevent
 
 ## 8. What is intentionally not done
 
-- Manual task creation form. Project creation/import is implemented.
-- Desktop pet habitat.
-- Packaged installer flow and agent installation on install.
 - Provider credential failure handling.
 - Normalized SQLite tables.
 

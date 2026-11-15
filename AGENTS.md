@@ -31,7 +31,7 @@ This machine has limited free RAM. If a Tauri build fails with `only metadata st
 3. New non-trivial selectors go in `src/lib/selectors.ts` with an invariant in `tests/data.test.ts`.
 4. Use the design tokens in `src/app.css`. No new colors, shadows, gradients, or font families without updating `docs/Design-System.md`.
 5. The desktop app has a real local backend: SQLite plus OpenCode sessions. The browser-only preview is still demo/scripted. Keep `Local seed` / `Local data` and `Demo data` labels honest; never claim a model ran, a task completed, or memory changed before the backend stored it.
-6. The orchestrator is a separate resizable Tauri window (`orchestrator`, 920x680 default, 640x480 floor). Do not reintroduce a docked chat panel. Its visual language is the square black daily-tracker surface, not the charcoal panel system.
+6. The orchestrator is a separate resizable Tauri window (`orchestrator`, 920x680 default, 640x480 floor). The habitat is a separate 480x150 always-on-top strip. Do not reintroduce a docked chat panel. Their visual language is the square black daily-tracker surface, not the charcoal panel system.
 7. No dependency without a stated reason. The renderer uses Svelte, Tailwind, Lucide, and the Tauri API only. Global shortcut is the only Rust plugin.
 8. Keep Tauri capabilities at `core:default` until a command actually needs more.
 9. Update the matching doc when architecture, data shape, tokens, or verification changes.

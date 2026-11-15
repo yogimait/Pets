@@ -46,7 +46,7 @@ The higher layer wins. A project may extend or tighten the global rules, never r
 | Iris | `iris` |
 | Verity | `verity` |
 
-Generated files are written to both `.opencode/agents/` and the global `%USERPROFILE%\.config\opencode\agent/`. The global copy is what makes the same app agents available in every selected project. Existing global files without the Agent Bots marker are not overwritten. They set:
+Generated files are written to both `.opencode/agents/` and the global `%USERPROFILE%\.config\opencode\agent/`. The global copy is what makes the same app agents available in every selected project. The release binary embeds these files and installs missing or Agent-Bots-generated copies on startup. Existing global files without the Agent Bots marker are not overwritten. They set:
 
 - `mode: primary`
 - the configured model, default `opencode-go/deepseek-v4.1-flash`; set `AGENT_BOTS_AGENT_MODEL` before sync to change it

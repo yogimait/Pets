@@ -48,7 +48,7 @@ erDiagram
 | `Agent` | slug (`pixel`) | `opencodeAgentId`, role, status, providerId, modelId, promptId, currentTaskId | `opencodeAgentId` is the real OpenCode agent. Defaults to `id`. |
 | `Project` | slug (`core`) | key, status, context, instructions, repoPath | A real run requires the repo and both policy files. |
 | `Task` | `t-*` | status, priority, ownerId, projectId, steps, messages | See optional fields below. |
-| `Task` optional | | `acceptance`, `dependsOn`, `sessionId`, `result`, `autoStart`, `startedAt`, `finishedAt`, `permission`, `worktreePath`, `worktreeBranch` | Written by Plan, Run, Poll, and Accept. Worktree fields are cleared after a successful merge. |
+| `Task` optional | | `acceptance`, `dependsOn`, `sessionId`, `result`, `autoStart`, `startedAt`, `finishedAt`, `permission`, `worktreePath`, `worktreeBranch` | Written by Plan, Run, Poll, and Accept, or by `workforce_create_task` for a manual task. Worktree fields are cleared after a successful merge. |
 | `TaskMessage` | `m-*` or generated | senderId, text, at | Sender is an app agent id. |
 | `ActivityEvent` | `ev-*` | kind, actorId, projectId, taskId, summary, detail | Newest first; IDs are unique per millisecond. |
 | `MemoryEntry` | `mem-*` | kind, projectId, content, source, confidence, linkedTaskId | Approved canonical memory. |

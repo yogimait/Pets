@@ -62,8 +62,8 @@ See [[First-Draft]] for the operator walkthrough.
 
 - SSE event updates with a 15-second polling fallback; no replay after disconnects.
 - Git tasks use isolated worktrees; accept fast-forwards the base branch.
-- No manual task creation form; tasks come from Plan or the seed.
-- No pets habitat.
+- Manual tasks are created from Tasks → New task.
+- Habitat: one 480x150 display-only specialist strip.
 - Manual live model smoke passed; full Plan/task/Dreamer evaluation still pending.
 - One chat session per project.
 

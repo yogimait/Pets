@@ -11,6 +11,7 @@
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust type check | Passes |
 | `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 20 tests pass |
 | `npx tauri build --no-bundle` | Release application compile | Passes; `agent-bots.exe` built |
+| `npx tauri build --bundles nsis` | Windows installer | Passes; `Agent Bots_0.1.0_x64-setup.exe` (~3.46 MiB) |
 | `impeccable detect src --json` | Design detector | 0 findings |
 
 Use `$env:CARGO_BUILD_JOBS=2` on low-RAM Windows machines.
@@ -247,6 +248,33 @@ was denied with `Permission denied: shell`; the directory and `keep.txt` remaine
 
 Residual risk: shell deny rules are pattern-based, not a sandbox. A command that does not match a listed pattern can still run.
 
+### Manual task form
+
+Created a task from **Tasks → New task** with project `CORE`, owner Pixel, title, description, acceptance, and start-now unchecked.
+
+- task appeared as `manual`
+- status was `queued`
+- `autoStart` was `false`
+- backend validation rejected empty title/description paths by construction
+- test task removed afterward
+
+### Habitat
+
+Opened the Pets strip from the main topbar.
+
+- 480x151 Tauri window
+- seven specialist monograms and status dots
+- one habitat window, no per-pet windows
+- close button hides the strip
+
+### Packaged agents and installer
+
+- the release binary embeds the nine generated agents
+- startup installs them into `~/.config/opencode/agent` when the file is missing or still Agent-Bots-generated
+- NSIS installer built at `src-tauri/target/release/bundle/nsis/Agent Bots_0.1.0_x64-setup.exe`
+
+Installer launch, upgrade, and uninstall are not tested.
+
 ### Git worktree isolation
 
 Created a temporary clean Git repo with `AGENTS.md` and `README.md`, added a temporary app project and read-only Scout task.
@@ -300,6 +328,7 @@ The runtime panel shows a yellow dot for failed or pending MCP servers; hover th
 - SSE reconnect during a long active turn and any event loss across disconnects.
 - Worktree merge conflicts and dirty-base rejection are not live-tested.
 - Provider credential failure.
+- Installer launch, upgrade, and uninstall.
 - DevVault maintenance by a task on a real production codebase; the write test used `Live Test`.
 - Shell commands outside the current destructive-pattern list; pattern matching is not a sandbox.
 - Packaged installer flow; verification uses the `--no-bundle` release binary.

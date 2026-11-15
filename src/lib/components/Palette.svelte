@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Search } from "@lucide/svelte";
-  import { app, closeSheet, go, openOrchestrator, openSheet } from "../state/app.svelte.ts";
+  import { app, closeSheet, go, openOrchestrator, openPets, openSheet } from "../state/app.svelte.ts";
   import { NAV, type View } from "../nav.ts";
 
   interface PaletteItem {
@@ -71,6 +71,13 @@
       hint: "Overlay · Alt+`",
       group: "Actions",
       run: () => openOrchestrator(),
+    });
+    list.push({
+      key: "action-pets",
+      label: "Open habitat",
+      hint: "Pet strip",
+      group: "Actions",
+      run: () => openPets(),
     });
     return list;
   });

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Command, MessageSquare } from "@lucide/svelte";
-  import { app, openOrchestrator } from "../state/app.svelte.ts";
+  import { Command, MessageSquare, PawPrint } from "@lucide/svelte";
+  import { app, openOrchestrator, openPets } from "../state/app.svelte.ts";
   import { VIEW_TITLES } from "../nav.ts";
   import { buildMetrics } from "../selectors.ts";
   import { workforceAvailable } from "../workforce.ts";
@@ -46,6 +46,15 @@
       <Command size={12} strokeWidth={1.7} />
       <span class="hidden sm:inline">Command</span>
       <kbd class="ml-1 rounded border border-line-soft px-1 font-mono text-[9.5px] text-ink-4">Ctrl K</kbd>
+    </button>
+
+    <button
+      onclick={openPets}
+      title="Open habitat"
+      class="hidden items-center gap-1.5 rounded-control border border-line-soft bg-surface px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink md:flex"
+    >
+      <PawPrint size={12} strokeWidth={1.7} />
+      Pets
     </button>
 
     <button

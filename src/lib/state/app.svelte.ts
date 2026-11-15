@@ -8,6 +8,7 @@ import {
   workforceAbortTask,
   workforceAvailable,
   workforceCreateProject,
+  workforceCreateTask,
   workforceDecideProposal,
   workforceDreamer,
   workforcePlan,
@@ -20,6 +21,7 @@ import {
   type PermissionDecision,
   type PlanResult,
   type ProjectInput,
+  type TaskInput,
 } from "../workforce.ts";
 import type { View } from "../nav.ts";
 
@@ -138,6 +140,10 @@ export async function createProject(input: ProjectInput): Promise<string | null>
   } finally {
     app.workforceBusy = false;
   }
+}
+
+export function createTask(input: TaskInput): Promise<boolean> {
+  return runWorkforceAction(() => workforceCreateTask(input));
 }
 
 export async function sendOrchestrator(projectId: string, text: string): Promise<boolean> {
@@ -287,6 +293,15 @@ export async function openOrchestrator(): Promise<void> {
     }
   }
   app.overlayOpen = true;
+}
+
+export async function openPets(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke("open_pets");
+  } catch (error) {
+    console.warn("pet habitat unavailable", error);
+  }
 }
 
 export async function closeOrchestrator(): Promise<void> {

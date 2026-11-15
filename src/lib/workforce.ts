@@ -19,6 +19,16 @@ export interface ProjectInspection {
   entryCount: number;
 }
 
+export interface TaskInput {
+  projectId: string;
+  title: string;
+  description: string;
+  ownerId: string;
+  priority: "low" | "normal" | "high" | "critical";
+  acceptance: string;
+  autoStart: boolean;
+}
+
 export interface ProjectInput {
   name: string;
   key: string;
@@ -60,6 +70,18 @@ export function workforceCreateProject(input: ProjectInput): Promise<Snapshot> {
     createPolicy: input.createPolicy,
     createReadme: input.createReadme,
     initGit: input.initGit,
+  });
+}
+
+export function workforceCreateTask(input: TaskInput): Promise<Snapshot> {
+  return invoke<Snapshot>("workforce_create_task", {
+    projectId: input.projectId,
+    title: input.title,
+    description: input.description,
+    ownerId: input.ownerId,
+    priority: input.priority,
+    acceptance: input.acceptance,
+    autoStart: input.autoStart,
   });
 }
 

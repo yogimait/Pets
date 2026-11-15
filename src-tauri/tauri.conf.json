@@ -44,6 +44,25 @@
         "center": true,
         "theme": "Dark",
         "backgroundColor": "#050505"
+      },
+      {
+        "label": "pets",
+        "title": "Habitat",
+        "url": "index.html",
+        "width": 480,
+        "height": 150,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "closable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": false,
+        "center": true,
+        "theme": "Dark",
+        "backgroundColor": "#050505"
       }
     ],
     "security": {

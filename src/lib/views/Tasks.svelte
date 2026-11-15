@@ -2,12 +2,17 @@
   import { Search } from "@lucide/svelte";
   import Panel from "../components/Panel.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
+  import TaskForm from "../components/TaskForm.svelte";
   import { agentById, projectById } from "../selectors.ts";
   import { openTask } from "../state/app.svelte.ts";
   import { timeAgo } from "../format.ts";
+  import { workforceAvailable } from "../workforce.ts";
   import type { Snapshot, TaskStatus } from "../types.ts";
 
   let { snapshot }: { snapshot: Snapshot } = $props();
+
+  const live = workforceAvailable();
+  let showTaskForm = $state(false);
 
   const statuses: { id: TaskStatus | "all"; label: string }[] = [
     { id: "all", label: "All statuses" },
@@ -54,15 +59,29 @@
 </script>
 
 <div class="space-y-5">
-  <div>
-    <h1 class="text-[18px] font-medium tracking-[-0.01em] text-ink">Tasks</h1>
-    <p class="mt-1 text-[11.5px] text-ink-3">
-      {snapshot.tasks.filter((task) => task.status === "running").length} running ·
-      {snapshot.tasks.filter((task) => task.status === "blocked").length} blocked ·
-      {snapshot.tasks.filter((task) => task.status === "queued").length} queued ·
-      {snapshot.tasks.filter((task) => task.status === "done").length} done
-    </p>
+  <div class="flex items-end justify-between gap-3">
+    <div>
+      <h1 class="text-[18px] font-medium tracking-[-0.01em] text-ink">Tasks</h1>
+      <p class="mt-1 text-[11.5px] text-ink-3">
+        {snapshot.tasks.filter((task) => task.status === "running").length} running ·
+        {snapshot.tasks.filter((task) => task.status === "blocked").length} blocked ·
+        {snapshot.tasks.filter((task) => task.status === "queued").length} queued ·
+        {snapshot.tasks.filter((task) => task.status === "done").length} done
+      </p>
+    </div>
+    {#if live}
+      <button
+        onclick={() => (showTaskForm = true)}
+        class="rounded-control border border-accent/40 bg-accent-soft px-3 py-1.5 text-[11px] text-ink transition-colors hover:border-accent/60"
+      >
+        New task
+      </button>
+    {/if}
   </div>
+
+  {#if showTaskForm}
+    <TaskForm onclose={() => (showTaskForm = false)} />
+  {/if}
 
   <div class="flex flex-wrap items-center gap-2">
     <div class="relative min-w-[180px] flex-1 md:max-w-[260px]">

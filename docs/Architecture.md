@@ -4,7 +4,7 @@ Agent Bots is a local-first desktop control plane. The Svelte renderer owns pres
 
 ## Runtime
 
-- Tauri 2 shell with two windows: main 1360x820 (1080x720 floor) and a 920x680 resizable frameless orchestrator overlay (640x480 floor) opened with `Alt+\``.
+- Tauri 2 shell with three windows: main 1360x820 (1080x720 floor), a 920x680 resizable frameless orchestrator overlay (640x480 floor) opened with `Alt+\``, and a 480x150 always-on-top habitat strip.
 - Svelte 5 renderer with runes, TypeScript strict, Vite 8, Tailwind CSS 4.
 - SQLite database at `app_data_dir/workforce.db`. One `state` row stores the full snapshot as JSON. This is deliberate for the first draft; normalized tables come later.
 - The app attaches to the existing OpenCode background service instead of spawning a private `serve` child. It discovers the URL with `opencode service status` and reads the local IPC password from `~/.config/opencode/service.json`. The service stays alive when the app exits.
@@ -46,6 +46,7 @@ Views receive a `Snapshot` prop. They never import fixtures directly. `src/lib/d
 | `workforce_seed` | Store the fixture snapshot once |
 | `workforce_inspect_project` | Check a folder for existence, policy, README, and Git |
 | `workforce_create_project` | Add or import a project; optionally create folder, starter policy/README, and Git repo |
+| `workforce_create_task` | Create a manual queued task with owner, priority, acceptance, and optional auto-start |
 | `workforce_plan` | Ask the orchestrator for a task plan, create tasks, append activity and chat |
 | `workforce_send` | Send an orchestrator chat prompt and store the reply |
 | `workforce_tick` | Start ready `autoStart` tasks |
@@ -174,9 +175,10 @@ Dreamer reads project context, review/done task results, and existing memory. It
 
 - SSE is live-only and volatile; the bridge reconnects and a 15-second polling fallback recovers missed events. There is no replay or Last-Event-ID recovery.
 - Worktrees require a clean Git repo and a fast-forwardable base branch; merge conflicts remain manual.
-- No manual task creation form; tasks come from the fixture seed, Plan, or task actions. Project creation/import exists.
+- Manual tasks are created from Tasks → New task; there is no task editing form.
 - One chat session per project; if OpenCode restarts, the next chat recreates it.
-- No pets habitat yet.
+- The habitat is display-only: status dots and names, no pet interaction yet.
+- The packaged installer is NSIS; bundled agents are installed into the global OpenCode agent directory on startup.
 - Manual live runtime smoke passed; no full Plan/task/Dreamer evaluation has been run.
 - No visual regression or DOM test harness.
 
