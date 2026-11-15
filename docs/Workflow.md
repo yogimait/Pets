@@ -49,7 +49,8 @@ Important differences:
 - Chat is conversation. It does **not** start a task and does not automatically inspect the task board. Use Plan to create work.
 - Plan creates queued tasks with `autoStart: true`. The scheduler starts ready tasks; it does not run the whole plan synchronously.
 - A task is executed by one specialist agent, not by the orchestrator itself.
-- The task agent gets the full policy stack, task description, acceptance criteria, approved project memory, and DevVault context. Chat gets project metadata and recent project chat, not the task board or memory.
+- The task agent gets the full policy stack, task description, acceptance criteria, approved project memory, and DevVault context.
+- Chat now gets project metadata, the project task board with statuses, approved project memory, and recent project chat. It still cannot create, accept, run, or retry tasks from chat; use Plan or Tasks.
 
 ## Permissions and questions
 
@@ -94,28 +95,28 @@ queued -> running -> review -> done
 
 What is live:
 
-- **Overview**: active work, recent activity.
-- **Tasks**: queued/running/review/blocked/done status, session id, result, permission card.
+- **Alerts bell**: badge for permission requests, review results, and blocked tasks; click an item to open the task.
+- **Tasks**: queued/running/review/blocked/done status, session id, result, permission card, and a review banner with a Review next shortcut.
 - **Activity**: start, finish, permission, accept, delegation, and memory events.
+- **Overview**: active work and recent activity.
 - **Pet bubble**: agent status, current task, latest activity.
 
 What is not live:
 
 - No token-by-token stream in the app.
 - No reliable percentage progress. `steps` are usually empty, so the progress bar stays at 0 until a result exists.
-- The orchestrator does not push progress reports to you. It reports when you message it, and its chat context does not currently include the whole task board.
+- The orchestrator does not push progress reports. It can now read the task board and reports when you message it.
 - The app polls the session and updates status; the task result appears at review.
 
 ## Project chat consistency
 
-The current implementation is **not yet a fully isolated thread per project**:
+Chat is now project-scoped:
 
 - The backend keeps one OpenCode chat session per project and filters the last eight prompt messages by project references.
-- The one orchestrator window uses a project selector to choose the backend project and session.
-- The visible chat list is still the shared snapshot thread. Messages are not filtered by the selected project in the UI.
-- User messages are currently stored with empty references, so they can appear in more than one project's prompt history.
-
-For testing, use one project at a time in the orchestrator and confirm the selected project before sending. A true per-project thread requires tagging user messages with a project reference and filtering the visible thread by that reference.
+- User messages are tagged with the selected project.
+- The visible thread is filtered by the selected project.
+- Switching the project selector switches both the visible thread and the backend session.
+- The session map is in memory; after an app restart, the next chat creates a new OpenCode session, but stored project chat is still used as context.
 
 ## Models
 
@@ -169,10 +170,10 @@ A task does not silently become done. It waits in review. A task can also stop b
 
 ## Current limits
 
-- Chat display is shared across projects; backend sessions are per project.
-- No question inbox or notification.
+- No live agent question dialog. Review results and permission cards remain the approval surfaces; the alerts bell surfaces them.
 - No token streaming or precise step progress.
-- One model for all roles.
+- One model for all roles. Agent tool permissions already auto-allow safe workspace and MCP actions; destructive, external, secret, and question operations remain denied.
+- Review acceptance is always manual; the app does not auto-accept a result.
 - Git tasks require a clean repository and use worktrees; merge conflicts require manual resolution.
 - MCP tool actions are auto-allowed; non-MCP approvals use the task permission card.
 

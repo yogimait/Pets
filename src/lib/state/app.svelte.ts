@@ -151,7 +151,14 @@ export async function sendOrchestrator(projectId: string, text: string): Promise
   app.workforceError = null;
   try {
     const reply = await workforceSend(projectId, text);
-    app.chat.push({ id: `chat-${Date.now()}-r`, role: "orchestrator", text: reply.text, at: Date.now(), refs: [] });
+    const project = app.snapshot?.projects.find((candidate) => candidate.id === projectId);
+    app.chat.push({
+      id: `chat-${Date.now()}-r`,
+      role: "orchestrator",
+      text: reply.text,
+      at: Date.now(),
+      refs: [{ kind: "project", id: projectId, label: project?.key ?? projectId }],
+    });
     return true;
   } catch (error) {
     app.workforceError = String(error);
@@ -186,8 +193,10 @@ export function replyTaskPermission(
   return runWorkforceAction(() => workforceReplyTaskPermission(taskId, requestId, decision));
 }
 
-export function acceptTask(taskId: string): Promise<boolean> {
-  return runWorkforceAction(() => workforceAcceptTask(taskId));
+export async function acceptTask(taskId: string): Promise<boolean> {
+  const accepted = await runWorkforceAction(() => workforceAcceptTask(taskId));
+  if (accepted) void syncNow();
+  return accepted;
 }
 
 export function abortTask(taskId: string): Promise<boolean> {

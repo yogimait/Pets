@@ -5,7 +5,7 @@
 | Command | Purpose | Current result |
 |---|---|---|
 | `npm run check` | Svelte and TypeScript diagnostics | 0 errors, 0 warnings |
-| `npm test` | Agent sync validation plus data, selector, prompt, runtime-format, and Markdown tests | 27 Node tests pass |
+| `npm test` | Agent sync validation plus data, selector, prompt, runtime-format, and Markdown tests | 28 Node tests pass |
 | `npm run check:agents` | Validate generated OpenCode agent files | 9 agents pass |
 | `npm run build` | Production renderer bundle | Passes, about 281 KB JS / 33 KB CSS |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust type check | Passes |
@@ -300,6 +300,7 @@ Opened the pets from the main topbar.
 - hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
 - the main app does not open from a pet
 - bubble hides when the pointer leaves the pet, after 4 seconds, or via close
+- topbar Alerts shows the two pending review results for the Sexy-calculator project; Review next opens the task sheet with Accept result
 - topbar `Pets` hides all nine windows; `Show pets` restores all nine and unhides motion
 - hidden pets pause movement; showing them resumes from the last position
 - closing the main window exits the app process and removes all pet windows

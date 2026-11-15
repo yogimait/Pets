@@ -86,12 +86,15 @@ There is one orchestrator role, not one orchestrator per folder. Projects are sc
 
 The orchestrator knows:
 
-- the app snapshot: projects, tasks, agents, memory, activity
 - the selected project's `repoPath`, context, instructions, and `AGENTS.md`
+- the selected project's task board titles and statuses
+- up to eight approved memory entries for that project
 - project files it can read with OpenCode tools
 - recent project chat
 
 It does not know arbitrary folders on the PC. Generated agent permissions deny external directories, `.env` reads, and subagents. This is deliberate: the app controls filesystem access, the orchestrator controls planning inside the selected scope. Dreamer memory is scoped global/project/agent, not omniscient.
+
+Chat is project-scoped in both storage and display: user messages and replies carry a project reference, and the visible thread filters by the selected project. The topbar Alerts bell surfaces permission requests, review results, and blocked tasks.
 
 ## OpenCode integration
 

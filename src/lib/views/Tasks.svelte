@@ -49,6 +49,11 @@
   });
 
   let hasFilters = $derived(query.trim() !== "" || status !== "all" || ownerId !== "all" || projectId !== "all");
+  let reviewTasks = $derived(
+    snapshot.tasks
+      .filter((task) => task.status === "review")
+      .sort((a, b) => a.updatedAt - b.updatedAt),
+  );
 
   function reset() {
     query = "";
@@ -81,6 +86,25 @@
 
   {#if showTaskForm}
     <TaskForm onclose={() => (showTaskForm = false)} />
+  {/if}
+
+  {#if reviewTasks.length > 0}
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-control border border-warn/35 bg-warn/5 px-3 py-2.5" role="status">
+      <div>
+        <p class="text-[11px] text-warn">
+          {reviewTasks.length} {reviewTasks.length === 1 ? "result is" : "results are"} waiting for review
+        </p>
+        <p class="mt-0.5 text-[10.5px] leading-relaxed text-ink-3">
+          Open a Review task, read the result, then click Accept result. Dependent tasks stay queued until accepted.
+        </p>
+      </div>
+      <button
+        onclick={() => openTask(reviewTasks[0].id)}
+        class="rounded-control border border-warn/35 bg-warn/10 px-2.5 py-1 text-[10.5px] text-warn transition-colors hover:bg-warn/15"
+      >
+        Review next
+      </button>
+    </div>
   {/if}
 
   <div class="flex flex-wrap items-center gap-2">

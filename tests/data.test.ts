@@ -4,6 +4,7 @@ import { snapshot } from "../src/lib/data/index.ts";
 import {
   activityFiltered,
   buildMetrics,
+  chatForProject,
   memoryFiltered,
   modelLabel,
   opencodeAgentId,
@@ -87,6 +88,24 @@ test("every agent model resolves to a configured provider", () => {
     assert.ok(provider.configured, `agent ${agent.id} uses an unconfigured provider`);
     const label = modelLabel(snapshot, agent);
     assert.ok(label.model.length > 0);
+  }
+});
+
+test("project chat only contains messages tied to that project", () => {
+  for (const project of snapshot.projects) {
+    for (const message of chatForProject(snapshot, project.id)) {
+      assert.ok(message.refs.length > 0, `chat ${message.id} has no project reference`);
+      assert.ok(
+        message.refs.some((reference) => {
+          if (reference.kind === "project") return reference.id === project.id;
+          if (reference.kind === "task") {
+            return snapshot.tasks.find((task) => task.id === reference.id)?.projectId === project.id;
+          }
+          return false;
+        }),
+        `chat ${message.id} leaked into ${project.id}`,
+      );
+    }
   }
 });
 

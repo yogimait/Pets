@@ -2,6 +2,7 @@ import type {
   ActivityEvent,
   ActivityKind,
   Agent,
+  ChatMessage,
   DreamerRun,
   MemoryEntry,
   MemoryKind,
@@ -71,6 +72,22 @@ export function modelLabel(snapshot: Snapshot, agent: Agent): { provider: string
 
 export function tasksByProject(snapshot: Snapshot, projectId: string): Task[] {
   return snapshot.tasks.filter((task) => task.projectId === projectId).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function chatForProject(
+  snapshot: Snapshot,
+  projectId: string,
+  messages: ChatMessage[] = snapshot.chat,
+): ChatMessage[] {
+  return messages.filter((message) =>
+    message.refs.some((reference) => {
+      if (reference.kind === "project") return reference.id === projectId;
+      if (reference.kind === "task") {
+        return taskById(snapshot, reference.id)?.projectId === projectId;
+      }
+      return false;
+    }),
+  );
 }
 
 export function tasksByAgent(snapshot: Snapshot, agentId: string): Task[] {

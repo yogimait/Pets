@@ -7,6 +7,7 @@
   import Markdown from "./Markdown.svelte";
   import { workforceAvailable } from "../workforce.ts";
   import { clockTime } from "../format.ts";
+  import { chatForProject } from "../selectors.ts";
   import type { ChatRef } from "../types.ts";
 
   let { windowMode = true }: { windowMode?: boolean } = $props();
@@ -25,8 +26,20 @@
 
   const live = workforceAvailable();
 
-  let visible = $derived(expanded ? app.chat : app.chat.slice(-COMPACT));
-  let hiddenCount = $derived(Math.max(0, app.chat.length - COMPACT));
+  let projectChat = $derived(
+    app.snapshot ? chatForProject(app.snapshot, projectId, app.chat) : [],
+  );
+  let visible = $derived(expanded ? projectChat : projectChat.slice(-COMPACT));
+  let hiddenCount = $derived(Math.max(0, projectChat.length - COMPACT));
+
+  function projectRef(): ChatRef {
+    const project = app.snapshot?.projects.find((candidate) => candidate.id === projectId);
+    return {
+      kind: "project",
+      id: projectId,
+      label: project?.key ?? projectId,
+    };
+  }
 
   function resizeComposer() {
     if (!input) return;
@@ -93,7 +106,7 @@
       role: "user",
       text,
       at: Date.now(),
-      refs: [],
+      refs: [projectRef()],
     });
     draft = "";
     app.pending = true;

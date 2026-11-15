@@ -715,7 +715,8 @@ pub async fn workforce_send(
             "id": project_id,
             "label": project_label(&project)
         })];
-        push_chat(value, "user", &text, Vec::new());
+        let user_refs = refs.clone();
+        push_chat(value, "user", &text, user_refs);
         push_chat(value, "orchestrator", &reply, refs);
         Ok(())
     })?;
@@ -2116,6 +2117,8 @@ fn plan_prompt(snapshot: &Value, project: &Value, goal: &str) -> String {
 
 fn send_prompt(snapshot: &Value, project: &Value, text: &str) -> String {
     let project_id = project.get("id").and_then(Value::as_str).unwrap_or("");
+    let tasks = project_task_titles(snapshot, project);
+    let memory = memory_context(snapshot, project_id, 8);
     let mut lines = Vec::new();
     if let Some(chat) = snapshot.get("chat").and_then(Value::as_array) {
         for message in chat
@@ -2136,8 +2139,10 @@ fn send_prompt(snapshot: &Value, project: &Value, text: &str) -> String {
         lines.push("(no earlier messages)".to_string());
     }
     format!(
-        "{}\n\nRecent conversation:\n{}\n\nUser:\n{}\n\nReply as the orchestrator. Be concrete, short, and honest about what is simulated or not run.",
+        "{}\n\nTask board:\n{}\n\nApproved project memory:\n{}\n\nRecent conversation:\n{}\n\nUser:\n{}\n\nReply as the orchestrator. Be concrete, short, and honest about what is simulated or not run. You cannot run, accept, or retry tasks from chat; tell the operator to use Tasks and the Accept result button when a result is waiting for review. Do not claim a task is blocked by a permission unless the task board actually shows a blocked task or the task has a permission request.",
         project_context(project),
+        tasks,
+        if memory.is_empty() { "(none)".to_string() } else { memory },
         lines.join("\n"),
         text.trim()
     )
@@ -2420,10 +2425,10 @@ fn dreamer_prompt(snapshot: &Value, project: &Value) -> String {
 fn chat_message_in_project(snapshot: &Value, message: &Value, project_id: &str) -> bool {
     let refs = message.get("refs").and_then(Value::as_array);
     let Some(refs) = refs else {
-        return true;
+        return false;
     };
     if refs.is_empty() {
-        return true;
+        return false;
     }
     refs.iter().any(|reference| {
         match reference.get("kind").and_then(Value::as_str) {
