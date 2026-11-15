@@ -157,6 +157,11 @@ pub fn run() {
             }) {
                 eprintln!("global shortcut registration failed: {error}");
             }
+
+            let event_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                opencode::run_event_listener(event_app).await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

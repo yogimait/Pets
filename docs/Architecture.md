@@ -35,7 +35,7 @@ Views receive a `Snapshot` prop. They never import fixtures directly. `src/lib/d
 1. `init()` calls `loadSnapshot()`.
 2. In Tauri, `workforce_snapshot()` returns the SQLite snapshot. If empty, the renderer clones fixtures, calls `workforce_seed()`, and uses the stored result. Seeding normalizes fake running/review tasks to queued, disables seed auto-start, starts agents idle, and clears scripted chat, seed activity, and sample proposals/runs. A pre-runtime database without `schemaVersion: 3` is migrated on read; plan-created task ids are preserved, and v2 chat is kept while stale seed session ids are cleared.
 3. Every mutating command returns the authoritative snapshot. `runWorkforceAction()` replaces `app.snapshot`; the current view and sheet stay open.
-4. Every app window starts a guarded four-second sync: `workforce_tick()` then `workforce_poll()`. The per-page guard prevents duplicate intervals; the backend run lock and task claim keep concurrent ticks from starting the same task twice.
+4. The Rust core subscribes to OpenCode `/api/event` and emits `workforce-event` for session, message, and permission changes. Each app window debounces that event into `workforce_tick()` then `workforce_poll()`. A 15-second fallback sync covers the volatile/disconnected SSE stream; the per-page guard, run lock, and task claim prevent duplicate work.
 5. The overlay refreshes the snapshot on focus and after chat or plan actions.
 
 ## Workforce commands
@@ -172,7 +172,7 @@ Dreamer reads project context, review/done task results, and existing memory. It
 
 ## Current limits
 
-- No SSE; message and task updates use HTTP polling.
+- SSE is live-only and volatile; the bridge reconnects and a 15-second polling fallback recovers missed events. There is no replay or Last-Event-ID recovery.
 - No worktrees.
 - No manual task creation form; tasks come from the fixture seed, Plan, or task actions. Project creation/import exists.
 - One chat session per project; if OpenCode restarts, the next chat recreates it.

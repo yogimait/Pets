@@ -9,7 +9,7 @@
 | `npm run check:agents` | Validate generated OpenCode agent files | 9 agents pass |
 | `npm run build` | Production renderer bundle | Passes, about 281 KB JS / 33 KB CSS |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust type check | Passes |
-| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing | 17 tests pass |
+| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 19 tests pass |
 | `npx tauri build --no-bundle` | Release application compile | Passes; `agent-bots.exe` built |
 | `impeccable detect src --json` | Design detector | 0 findings |
 
@@ -183,6 +183,17 @@ Forge C: running
 
 Two running tasks maximum, one per owner. Test tasks were removed afterward.
 
+### SSE event bridge
+
+- Rust subscribes to OpenCode `/api/event` with loopback basic auth.
+- The runtime log recorded `SSE connected`.
+- Session/message/permission events are filtered and emitted as `workforce-event`.
+- Frontend sync debounces the event by 150ms, then runs tick + poll.
+- 15-second polling remains as fallback because the OpenCode stream is volatile.
+- A Plan-created task started 5.8s after creation, below the 15-second fallback, consistent with event-driven start.
+
+SSE reconnect under long active turns and event loss across disconnects are not load-tested.
+
 ### DevVault maintenance access
 
 Verified that a task prompt contains:
@@ -258,6 +269,7 @@ The runtime panel shows a yellow dot for failed or pending MCP servers; hover th
 - MCP auto-allow with mutating browser actions such as click or form fill.
 - Unexpected non-MCP permission requests during unattended task runs.
 - Long-running concurrent tasks under model load.
+- SSE reconnect during a long active turn and any event loss across disconnects.
 - Worktree isolation (not implemented).
 - Provider credential failure.
 - DevVault maintenance by a task on a real production codebase; the write test used `Live Test`.

@@ -1,3 +1,4 @@
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -5,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 
 #[derive(Clone)]
 struct SharedTarget {
@@ -265,6 +267,112 @@ fn connect_shared_service() -> Result<SharedTarget, String> {
     )
 }
 
+const SYNC_EVENT_TYPES: &[&str] = &[
+    "server.connected",
+    "session.created",
+    "session.updated",
+    "session.deleted",
+    "session.idle",
+    "session.error",
+    "session.status",
+    "session.permissions",
+    "permission.asked",
+    "permission.updated",
+    "message.updated",
+];
+
+fn is_sync_event(event_type: &str) -> bool {
+    SYNC_EVENT_TYPES.contains(&event_type)
+}
+
+fn event_session_id(value: &Value) -> Option<String> {
+    value
+        .pointer("/data/sessionID")
+        .and_then(Value::as_str)
+        .or_else(|| value.pointer("/data/info/sessionID").and_then(Value::as_str))
+        .or_else(|| value.pointer("/data/session/id").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+fn drain_sse_frames(buffer: &mut String) -> Vec<String> {
+    let mut frames = Vec::new();
+    while let Some(end) = buffer.find("\n\n") {
+        let frame = buffer[..end].to_string();
+        buffer.drain(..end + 2);
+        frames.push(frame);
+    }
+    frames
+}
+
+fn sse_data(frame: &str) -> Option<String> {
+    let data = frame
+        .lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if data.is_empty() { None } else { Some(data) }
+}
+
+async fn event_stream_once(app: &AppHandle, target: &SharedTarget) -> Result<(), String> {
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|error| format!("SSE client failed: {error}"))?;
+    let response = client
+        .get(format!("{}/api/event", target.base))
+        .basic_auth("opencode", Some(&target.password))
+        .header(reqwest::header::ACCEPT, "text/event-stream")
+        .send()
+        .await
+        .map_err(|error| format!("SSE request failed: {error}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("SSE endpoint returned {status}"));
+    }
+
+    debug_log("SSE connected");
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|error| format!("SSE stream failed: {error}"))?;
+        buffer.push_str(&String::from_utf8_lossy(&bytes).replace("\r\n", "\n").replace('\r', "\n"));
+        for frame in drain_sse_frames(&mut buffer) {
+            let Some(data) = sse_data(&frame) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<Value>(&data) else {
+                continue;
+            };
+            let Some(event_type) = value.get("type").and_then(Value::as_str) else {
+                continue;
+            };
+            if !is_sync_event(event_type) {
+                continue;
+            }
+            let payload = json!({
+                "type": event_type,
+                "sessionId": event_session_id(&value),
+            });
+            let _ = app.emit("workforce-event", payload);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn run_event_listener(app: AppHandle) {
+    loop {
+        let Some(target) = discover_shared_service() else {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            continue;
+        };
+        if let Err(error) = event_stream_once(&app, &target).await {
+            debug_log(&format!("SSE disconnected: {error}"));
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
 fn location_query(project: &str) -> String {
     format!("/api/agent?location%5Bdirectory%5D={}", url_encode(project))
 }
@@ -415,4 +523,26 @@ pub fn runtime_stop(state: tauri::State<'_, OpenCodeState>) -> Result<(), String
     // The app uses the shared OpenCode background service. Disconnect the
     // adapter without stopping a service the user may still be using.
     state.set_target(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drains_complete_sse_frames_and_keeps_partial_data() {
+        let mut buffer = String::from("data: {\"type\":\"session.idle\"}\n\ndata: {\"type\":\"session.updated\"}\n\npartial");
+        let frames = drain_sse_frames(&mut buffer);
+        assert_eq!(frames.len(), 2);
+        assert_eq!(sse_data(&frames[0]).as_deref(), Some("{\"type\":\"session.idle\"}"));
+        assert_eq!(buffer, "partial");
+    }
+
+    #[test]
+    fn filters_only_sync_events_and_extracts_session_id() {
+        assert!(is_sync_event("session.idle"));
+        assert!(!is_sync_event("message.part.updated"));
+        let value = json!({"type":"session.idle","data":{"sessionID":"ses_123"}});
+        assert_eq!(event_session_id(&value).as_deref(), Some("ses_123"));
+    }
 }

@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { ChatMessage, ProposalStatus, Snapshot } from "../types.ts";
 import { loadSnapshot } from "../data/provider.ts";
 import { readPolicy, type PolicyBundle } from "../policy.ts";
@@ -190,25 +191,43 @@ export function runDreamer(projectId: string): Promise<boolean> {
   return runWorkforceAction(() => workforceDreamer(projectId));
 }
 
+interface WorkforceEvent {
+  type: string;
+  sessionId?: string | null;
+}
+
 let syncStarted = false;
 let syncing = false;
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function syncNow(): Promise<void> {
+  if (syncing) return;
+  syncing = true;
+  try {
+    await workforceTick();
+    const next = await workforcePoll();
+    if (!next) return;
+    app.snapshot = next;
+    app.chat = next.chat ?? [];
+    app.workforceError = null;
+  } catch (error) {
+    app.workforceError = String(error);
+  } finally {
+    syncing = false;
+  }
+}
+
+function scheduleSync(): void {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => void syncNow(), 150);
+}
 
 export function startWorkforceSync(): void {
   if (syncStarted || !workforceAvailable()) return;
   syncStarted = true;
-  setInterval(async () => {
-    if (syncing) return;
-    syncing = true;
-    try {
-      await workforceTick();
-      app.snapshot = await workforcePoll();
-      app.workforceError = null;
-    } catch (error) {
-      app.workforceError = String(error);
-    } finally {
-      syncing = false;
-    }
-  }, 4000);
+  void listen<WorkforceEvent>("workforce-event", scheduleSync);
+  // SSE is volatile by contract; this slower pass recovers missed events.
+  setInterval(() => void syncNow(), 15_000);
 }
 
 export async function decideProposal(id: string, status: Extract<ProposalStatus, "approved" | "rejected">): Promise<void> {
