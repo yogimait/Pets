@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test tests/data.test.ts tests/prompts.test.ts tests/runtime.test.ts",
+    "pretest": "node scripts/sync-agents.mjs",
+    "test": "node scripts/check-agents.mjs && node --test tests/data.test.ts tests/markdown.test.ts tests/prompts.test.ts tests/runtime.test.ts",
+    "sync:agents": "node scripts/sync-agents.mjs",
+    "check:agents": "node scripts/check-agents.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

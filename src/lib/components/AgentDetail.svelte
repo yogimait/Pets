@@ -6,7 +6,7 @@
   import TaskRow from "./TaskRow.svelte";
   import ActivityRow from "./ActivityRow.svelte";
   import { app, closeSheet, loadPolicy, openSheet, openTask } from "../state/app.svelte.ts";
-  import { activityFiltered, agentById, modelLabel, projectById, recentTasks, taskById } from "../selectors.ts";
+  import { activityFiltered, agentById, opencodeAgentId, projectById, recentTasks, taskById } from "../selectors.ts";
   import { assemblePrompt } from "../prompts.ts";
   import { findAgentPrompt, handoffContract, memoryProposalContract } from "../prompt-files.ts";
   import { timeAgo } from "../format.ts";
@@ -14,7 +14,6 @@
   let { id }: { id: string } = $props();
 
   let agent = $derived(app.snapshot ? agentById(app.snapshot, id) : undefined);
-  let model = $derived(agent && app.snapshot ? modelLabel(app.snapshot, agent) : null);
   let currentTask = $derived(
     agent?.currentTaskId && app.snapshot ? taskById(app.snapshot, agent.currentTaskId) : undefined,
   );
@@ -72,10 +71,10 @@
         </div>
       </div>
 
-      <Section title="Model">
+      <Section title="OpenCode agent">
         <div class="rounded-control border border-line-soft bg-raised px-3 py-2.5">
-          <p class="text-[12px] text-ink">{model?.model}</p>
-          <p class="mt-0.5 text-[10px] text-ink-3">{model?.provider}</p>
+          <p class="font-mono text-[11.5px] text-ink">{opencodeAgentId(agent)}</p>
+          <p class="mt-0.5 text-[10px] text-ink-3">Model selection and credentials stay in OpenCode.</p>
         </div>
       </Section>
 

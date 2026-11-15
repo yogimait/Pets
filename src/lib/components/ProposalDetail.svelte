@@ -4,14 +4,28 @@
   import StatusBadge from "./StatusBadge.svelte";
   import { app, closeSheet, decideProposal, openSheet } from "../state/app.svelte.ts";
   import { memoryById, projectById, proposalById, agentById } from "../selectors.ts";
+  import { workforceAvailable } from "../workforce.ts";
   import { fullTimestamp, percent, timeAgo } from "../format.ts";
 
   let { id }: { id: string } = $props();
 
+  let busy = $state(false);
+
+  const live = workforceAvailable();
   let proposal = $derived(app.snapshot ? proposalById(app.snapshot, id) : undefined);
   let project = $derived(proposal && app.snapshot ? projectById(app.snapshot, proposal.projectId) : undefined);
   let agent = $derived(proposal?.agentId && app.snapshot ? agentById(app.snapshot, proposal.agentId) : undefined);
   let target = $derived(proposal?.targetEntryId && app.snapshot ? memoryById(app.snapshot, proposal.targetEntryId) : undefined);
+
+  async function decide(status: "approved" | "rejected") {
+    if (!proposal) return;
+    busy = true;
+    try {
+      await decideProposal(proposal.id, status);
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 {#if proposal}
@@ -71,27 +85,40 @@
         </Section>
       {/if}
 
+      {#if app.workforceError}
+        <p class="rounded-control border border-bad/30 bg-bad/5 px-2.5 py-2 text-[10.5px] leading-relaxed text-bad" role="alert">
+          {app.workforceError}
+        </p>
+      {/if}
+
       {#if proposal.status === "pending"}
         <div class="flex flex-wrap gap-2 border-t border-line-soft pt-3">
           <button
-            onclick={() => decideProposal(proposal!.id, "approved")}
-            class="rounded-control border border-ok/40 bg-ok/10 px-3 py-1.5 text-[11px] text-ok transition-colors hover:bg-ok/15"
+            onclick={() => decide("approved")}
+            disabled={busy || app.workforceBusy}
+            class="rounded-control border border-ok/40 bg-ok/10 px-3 py-1.5 text-[11px] text-ok transition-colors hover:bg-ok/15 disabled:opacity-40"
           >
             Approve proposal
           </button>
           <button
-            onclick={() => decideProposal(proposal!.id, "rejected")}
-            class="rounded-control border border-bad/40 bg-bad/10 px-3 py-1.5 text-[11px] text-bad transition-colors hover:bg-bad/15"
+            onclick={() => decide("rejected")}
+            disabled={busy || app.workforceBusy}
+            class="rounded-control border border-bad/40 bg-bad/10 px-3 py-1.5 text-[11px] text-bad transition-colors hover:bg-bad/15 disabled:opacity-40"
           >
             Reject proposal
           </button>
+          {#if busy}<span class="self-center text-[10px] text-ink-4" aria-live="polite">Saving…</span>{/if}
         </div>
         <p class="text-[9.5px] leading-relaxed text-ink-4">
-          Decision is recorded for this session only. The persistence layer and canonical memory write arrive with the runtime.
+          {live
+            ? "The decision is written to the local database before the sheet updates."
+            : "Browser preview: the decision is kept for this session only. Start the desktop app to store it."}
         </p>
       {:else}
         <p class="border-t border-line-soft pt-3 text-[10px] text-ink-4">
-          This proposal is {proposal.status}. Canonical memory is not written in the interface preview.
+          {live
+            ? `This proposal is ${proposal.status} and the decision is stored locally.`
+            : `This proposal is ${proposal.status} in this session preview only.`}
         </p>
       {/if}
     </div>

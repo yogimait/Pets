@@ -11,11 +11,19 @@
 </script>
 
 <div class="space-y-5">
-  <div>
-    <h1 class="text-[18px] font-medium tracking-[-0.01em] text-ink">Projects</h1>
+  <div class="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h1 class="text-[18px] font-medium tracking-[-0.01em] text-ink">Projects</h1>
     <p class="mt-1 text-[11.5px] text-ink-3">
       {snapshot.projects.filter((project) => project.status === "active").length} active · {snapshot.projects.length} workspaces · each keeps its own context and instructions
-    </p>
+      </p>
+    </div>
+    <button
+      onclick={() => openSheet("project-new", "new")}
+      class="rounded-control border border-accent/30 bg-accent-soft px-3 py-1.5 text-[11px] text-ink transition-colors hover:bg-accent/15"
+    >
+      New project
+    </button>
   </div>
 
   <Panel title="Workspaces" subtitle="Context, agents, and task progress" padded={false}>

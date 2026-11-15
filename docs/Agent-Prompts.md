@@ -1,6 +1,6 @@
-# Agent Prompts
+# Agent-Prompts
 
-The workforce role definitions live in `prompts/`. They are original prompts for this project, informed by the parent/Dreamer separation in OpenAI Dots. They are not copied from the leaked prompt text.
+The workforce role definitions live in `prompts/`. They are original prompts informed by the parent/Dreamer separation in OpenAI Dots, not copied from leaked prompt text.
 
 Reference: <https://github.com/asgeirtj/system_prompts_leaks/tree/main/OpenAI/dots>
 
@@ -9,86 +9,98 @@ Reference: <https://github.com/asgeirtj/system_prompts_leaks/tree/main/OpenAI/do
 1. Global `AGENTS.md` from `%USERPROFILE%\.config\opencode\AGENTS.md`, verbatim.
 2. Project `AGENTS.md` from the selected project root.
 3. Agent prompt in `prompts/agents/`.
-4. Task context and retrieved memory.
+4. Task context and approved project memory.
 5. Shared handoff contract.
 
-The higher layer wins. Project rules extend or tighten the global rules, never replace them. Agent prompts add role constraints, never relax policy. The harness records both policy hashes with every run.
+The higher layer wins. A project may extend or tighten the global rules, never replace them. An agent prompt may add role constraints, never relax policy. A real run requires both policy files.
 
 ## Files
 
 | File | Role |
-| --- | --- |
-| `prompts/agents/orchestrator.md` | Parent, planning, delegation, verification, reporting |
-| `prompts/agents/dreamer.md` | Memory research, proposals, no actions |
-| `prompts/agents/frontend.md` | Interface implementation, accessibility, browser verification |
-| `prompts/agents/backend.md` | APIs, data, migrations, auth, jobs, integrations |
-| `prompts/agents/research.md` | Evidence, sources, comparisons, uncertainty |
-| `prompts/agents/marketing.md` | Positioning, launch and landing copy, claim review |
-| `prompts/agents/ui-ux.md` | Flows, IA, states, interaction specs, accessibility |
-| `prompts/agents/testing.md` | Independent verification and failure reproduction |
+|---|---|
+| `prompts/agents/orchestrator.md` | Planning, delegation, verification, reporting |
+| `prompts/agents/dreamer.md` | Memory proposals, no actions |
+| `prompts/agents/frontend.md` | Interface implementation, accessibility |
+| `prompts/agents/backend.md` | APIs, data, migrations, auth, jobs |
+| `prompts/agents/research.md` | Evidence, sources, comparisons |
+| `prompts/agents/marketing.md` | Positioning, launch copy, claim review |
+| `prompts/agents/ui-ux.md` | Flows, states, interaction specs |
+| `prompts/agents/testing.md` | Verification and failure reproduction |
 | `prompts/agents/auditing.md` | Security, permissions, data integrity, release risk |
 | `prompts/shared/handoff.md` | Specialist return contract |
 | `prompts/shared/memory-proposal.md` | Dreamer proposal contract |
 
-## Routing
+## Agent sync
 
-| Request | First owner | Then |
-| --- | --- | --- |
-| New screen or flow | UI/UX | Frontend, Testing |
-| Component or layout fix | Frontend | Testing |
-| API, schema, auth, jobs | Backend | Testing, Auditing |
-| Unknown facts or vendor choice | Research | Orchestrator decision |
-| Launch copy or announcement | Marketing | Auditing for claims |
-| Release check | Testing | Auditing |
-| Memory consolidation | Dreamer | Orchestrator approval |
+`scripts/sync-agents.mjs` converts the source prompts into OpenCode V2 primary agents:
+
+| App agent | OpenCode id |
+|---|---|
+| Orchestrator | `orchestrator-workforce` |
+| Dreamer | `dreamer` |
+| Pixel | `pixel` |
+| Forge | `forge` |
+| Scout | `scout` |
+| Voice | `voice` |
+| Probe | `probe` |
+| Iris | `iris` |
+| Verity | `verity` |
+
+Generated files are written to both `.opencode/agents/` and the global `%USERPROFILE%\.config\opencode\agent/`. The global copy is what makes the same app agents available in every selected project. Existing global files without the Agent Bots marker are not overwritten. They set:
+
+- `mode: primary`
+- the configured model, default `opencode-go/deepseek-v4.1-flash`; set `AGENT_BOTS_AGENT_MODEL` before sync to change it
+- `steps: 24`
+- permissions that allow MCP tools and deny subagents, questions, `.env` reads, external directories, and obvious destructive shell commands
+- the original role body plus a small app runtime note for the orchestrator
+
+Run `npm run sync:agents` after editing a prompt. Run `npm run check:agents` to validate.
+
+## Runtime prompt assembly
+
+For every task, Rust builds:
+
+```text
+global policy
+project policy
+role prompt from project `.opencode/agents/<agent>.md`, falling back to the global agent file
+task id, title, description, acceptance
+approved project memory, latest 8 entries
+shared handoff contract
+working directory reminder
+```
+
+The prompt is sent to an OpenCode session owned by the mapped agent. The agent's own OpenCode permissions still apply.
 
 ## Boundaries
 
 - One owner per task.
 - No recursive delegation.
-- Maximum two concurrent specialists initially.
+- Maximum two concurrent specialists.
 - Dreamer never contacts the user, executes tasks, or edits canonical memory.
-- Specialists request help through the Orchestrator.
+- Specialists request help through the orchestrator/task board, not each other.
 - Destructive, external, spending, publishing, or credential actions need approval.
 - Verification is part of the deliverable.
 - A simulated run must say it is simulated.
 
-## Agent mapping
+## Implemented
 
-| App agent | Prompt id |
-| --- | --- |
-| `orchestrator` | `orchestrator` |
-| `dreamer` | `dreamer` |
-| `pixel` | `frontend` |
-| `forge` | `backend` |
-| `scout` | `research` |
-| `voice` | `marketing` |
-| `iris` | `ui-ux` |
-| `probe` | `testing` |
-| `verity` | `auditing` |
+- Role prompts with frontmatter.
+- Prompt parser and layered assembler.
+- Policy reader for global and project `AGENTS.md`.
+- Policy gate before every real run.
+- Generated OpenCode agents.
+- Agent sync and validation scripts.
+- Task routing by owner id.
+- Prompt preview in Agent detail.
+- 24 Node tests and 17 Rust tests.
 
-The app stores `promptId` on each agent, so a display name can change without breaking the prompt link.
+## Pending
 
-## Status
+- Streaming OpenCode events.
+- Worktree isolation for coding tasks.
+- Skill loading at runtime.
+- Live model evaluation.
+- Editable agent routing in the UI.
 
-Implemented:
-
-- prompt files with frontmatter
-- prompt parser and layered assembler
-- bundled prompt loader
-- Rust policy reader for global and project `AGENTS.md`
-- policy path, hash, byte count, and reload control in Settings
-- assembled prompt preview in Agent detail
-- 22 invariant, prompt, and runtime-format tests
-- first-slice OpenCode runtime adapter: health, agents, models, sessions, prompt, messages, permissions, MCP status
-
-Not implemented:
-
-- syncing app prompts into `.opencode/agents`
-- runtime task routing and acceptance checks
-- hard block when the global policy is missing
-- skill loading at runtime
-- streaming OpenCode events
-- persistence of policy snapshots or sessions
-
-Related: [[Architecture]] · [[Design-System]] · [[Data-Model]] · [[Testing]]
+Related: [[Architecture]] · [[Testing]] · [[First-Draft]]

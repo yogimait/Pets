@@ -3,12 +3,16 @@
   import StatusBadge from "../components/StatusBadge.svelte";
   import Avatar from "../components/Avatar.svelte";
   import RuntimePanel from "../components/RuntimePanel.svelte";
-  import { modelLabel } from "../selectors.ts";
+  import { opencodeAgentId } from "../selectors.ts";
   import { app, loadPolicy, reloadPolicy } from "../state/app.svelte.ts";
+  import { workforceAvailable } from "../workforce.ts";
   import { fullTimestamp } from "../format.ts";
   import type { Snapshot } from "../types.ts";
 
   let { snapshot }: { snapshot: Snapshot } = $props();
+
+  const live = workforceAvailable();
+  let hasSession = $derived(snapshot.tasks.some((task) => !!task.sessionId));
 
   function changePolicyProject(event: Event) {
     const select = event.currentTarget as HTMLSelectElement;
@@ -25,34 +29,59 @@
     { name: "Accent", value: "#8ca6c0" },
   ];
 
-  const configuredCount = $derived(snapshot.providers.filter((provider) => provider.configured).length);
 </script>
 
 <div class="space-y-5">
   <div>
     <h1 class="text-[18px] font-medium tracking-[-0.01em] text-ink">Settings</h1>
-    <p class="mt-1 text-[11.5px] text-ink-3">Workspace data is still mock. The OpenCode runtime panel is live.</p>
+    <p class="mt-1 text-[11.5px] text-ink-3">
+      {live
+        ? "Workforce state is stored locally. Models run only when you start a task or a session."
+        : "Workspace data is mock in this browser preview. The OpenCode runtime panel is live."}
+    </p>
   </div>
 
-  <Panel title="Data source" subtitle="Interface only">
-    <div class="flex items-start gap-3 rounded-control border border-warn/25 bg-warn/5 p-3">
-      <span class="mt-1.5 size-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true"></span>
+  <Panel title="Data source" subtitle={live ? (hasSession ? "Local SQLite" : "Local seed") : "Interface only"}>
+    <div
+      class="flex items-start gap-3 rounded-control border p-3 {live && !hasSession ? 'border-warn/25 bg-warn/5' : 'border-line-soft bg-raised'}"
+    >
+      <span class="mt-1.5 size-1.5 shrink-0 rounded-full {live && !hasSession ? 'bg-warn' : 'bg-ok'}" aria-hidden="true"></span>
       <div>
-        <p class="text-[11.5px] text-ink">Local mock snapshot</p>
+        <p class="text-[11.5px] text-ink">
+          {live ? (hasSession ? "Local workspace database" : "Seeded local workspace") : "Local mock snapshot"}
+        </p>
         <p class="mt-1 text-[10.5px] leading-relaxed text-ink-3">
-          Every agent, task, activity event, and memory entry on the mock screens comes from one typed fixture set.
-          The OpenCode runtime panel below is separate and can start real model sessions.
+          {live
+            ? hasSession
+              ? "Agents, tasks, activity, memory, proposals, and the orchestrator thread live in a SQLite database in the app data directory. Every action returns the stored snapshot."
+              : "SQLite is seeded from the fixture workspace. Fake running and review tasks are converted to queued; its agents start idle. Run or plan work to create real session links."
+            : "Every agent, task, activity event, and memory entry on these screens comes from one typed fixture set. The OpenCode runtime panel below is separate and can start real model sessions."}
         </p>
       </div>
     </div>
     <ul class="mt-3 space-y-1.5 text-[10.5px] leading-relaxed text-ink-3">
       <li>
-        <span class="text-ink-4">Provider seam</span> ·
-        <span class="font-mono text-ink-2">src/lib/data/provider.ts</span> is the only file that changes for a real backend.
+        <span class="text-ink-4">Data seam</span> ·
+        <span class="font-mono text-ink-2">src/lib/data/provider.ts</span> routes reads; workforce.ts owns every write command.
       </li>
-      <li><span class="text-ink-4">Orchestrator</span> · the overlay is scripted. The OpenCode runtime panel starts real sessions separately.</li>
-      <li><span class="text-ink-4">Persistence</span> · app state is not persisted. OpenCode sessions live outside the app.</li>
-      <li><span class="text-ink-4">Agents</span> · cards and task data remain mock. A real session can be started below.</li>
+      <li>
+        <span class="text-ink-4">Orchestrator</span> ·
+        {live
+          ? "the overlay sends the prompt to the local backend and shows the stored reply. Plan mode creates tasks."
+          : "the overlay is scripted. The OpenCode runtime panel starts real sessions separately."}
+      </li>
+      <li>
+        <span class="text-ink-4">Persistence</span> ·
+        {live
+          ? "workforce state survives a restart. OpenCode sessions live outside the app and are linked by id."
+          : "app state is not persisted. OpenCode sessions live outside the app."}
+      </li>
+      <li>
+        <span class="text-ink-4">Execution</span> ·
+        {live
+          ? "no model runs until you send, plan, or start a session. Idle time costs nothing."
+          : "agents and task data remain mock. A real session can be started below."}
+      </li>
     </ul>
   </Panel>
 
@@ -111,75 +140,54 @@
       {/if}
 
       <p class="text-[10px] leading-relaxed text-ink-4">
-        The harness loads this file before every agent prompt. The project file may add or tighten rules. Missing policy blocks a real run; the interface preview shows the state instead.
+        The backend loads this file before every real prompt and blocks a run when it or the project AGENTS.md is missing. The project file may add or tighten rules; it never replaces the global policy.
       </p>
     </div>
   </Panel>
 
   <RuntimePanel />
 
-  <Panel title="Providers and models" subtitle={`${configuredCount} of ${snapshot.providers.length} configured`} padded={false}>
-    <div class="overflow-x-auto">
-      <table class="w-full border-collapse text-left">
-        <thead>
-          <tr class="border-b border-line-soft text-[9.5px] uppercase tracking-[0.1em] text-ink-4">
-            <th class="px-3.5 py-2 font-medium">Provider</th>
-            <th class="px-2 py-2 font-medium">Kind</th>
-            <th class="px-2 py-2 font-medium">Endpoint</th>
-            <th class="px-2 py-2 font-medium">Status</th>
-            <th class="px-3.5 py-2 font-medium">Models</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each snapshot.providers as provider (provider.id)}
-            <tr class="border-b border-line-soft last:border-0">
-              <td class="whitespace-nowrap px-3.5 py-2.5 text-[11.5px] text-ink">{provider.name}</td>
-              <td class="px-2 py-2.5 font-mono text-[10px] text-ink-3">{provider.kind}</td>
-              <td class="px-2 py-2.5 font-mono text-[10px] text-ink-3">{provider.endpoint}</td>
-              <td class="whitespace-nowrap px-2 py-2.5">
-                <StatusBadge
-                  status={provider.configured ? "active" : "paused"}
-                  label={provider.configured ? "Configured" : "Not configured"}
-                />
-              </td>
-              <td class="px-3.5 py-2.5">
-                <div class="flex flex-wrap gap-1">
-                  {#each provider.models as model (model.id)}
-                    <span class="rounded border border-line-soft bg-raised px-1.5 py-0.5 text-[9.5px] text-ink-2">
-                      {model.name}
-                      <span class="font-mono text-ink-4">{Math.round(model.context / 1000)}k</span>
-                    </span>
-                  {/each}
-                </div>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+  <Panel title="Model execution" subtitle="Resolved by the local backend">
+    <div class="grid gap-2 sm:grid-cols-3">
+      <div class="rounded-control border border-line-soft bg-raised px-3 py-2">
+        <p class="text-[9.5px] uppercase tracking-[0.1em] text-ink-4">Selection</p>
+        <p class="mt-1 text-[11.5px] text-ink">OpenCode agent</p>
+      </div>
+      <div class="rounded-control border border-line-soft bg-raised px-3 py-2">
+        <p class="text-[9.5px] uppercase tracking-[0.1em] text-ink-4">Override</p>
+        <p class="mt-1 truncate font-mono text-[10px] text-ink-2">AGENT_BOTS_MODEL</p>
+      </div>
+      <div class="rounded-control border border-line-soft bg-raised px-3 py-2">
+        <p class="text-[9.5px] uppercase tracking-[0.1em] text-ink-4">Credentials</p>
+        <p class="mt-1 text-[11.5px] text-ink">Owned by OpenCode</p>
+      </div>
     </div>
+    <p class="mt-3 text-[10.5px] leading-relaxed text-ink-4">
+      The app never reads provider keys. The OpenCode runtime panel above lists the models this machine can use. Task sessions
+      use the selected OpenCode agent model, unless <span class="font-mono text-ink-2">AGENT_BOTS_MODEL</span> is set to
+      <span class="font-mono text-ink-2">provider/model</span>.
+    </p>
   </Panel>
 
-  <Panel title="Agent routing" subtitle="Read-only model assignment" padded={false}>
+  <Panel title="Agent routing" subtitle="App agent to OpenCode agent" padded={false}>
     <div class="divide-y divide-line-soft">
       {#each snapshot.agents as agent (agent.id)}
-        {@const model = modelLabel(snapshot, agent)}
         <div class="flex items-center gap-3 px-3.5 py-2.5">
           <Avatar name={agent.name} size="xs" />
           <div class="min-w-0 flex-1">
             <p class="truncate text-[11.5px] text-ink">{agent.name}</p>
             <p class="truncate text-[9.5px] text-ink-4">{agent.role}</p>
           </div>
-          <span class="hidden font-mono text-[10px] text-ink-3 sm:block">{model.provider}</span>
-          <span class="max-w-[45%] truncate rounded border border-line-soft bg-raised px-1.5 py-0.5 font-mono text-[9.5px] text-ink-2"
-            >{model.model}</span
+          <span
+            class="max-w-[50%] truncate rounded border border-line-soft bg-raised px-1.5 py-0.5 font-mono text-[9.5px] text-ink-2"
+            >{opencodeAgentId(agent)}</span
           >
         </div>
       {/each}
     </div>
     <div class="border-t border-line-soft px-3.5 py-2.5 text-[10px] leading-relaxed text-ink-4">
-      Per-agent provider and model selection becomes editable with the provider runtime. The snapshot already carries <span
-        class="font-mono text-ink-2">providerId</span
-      > and <span class="font-mono text-ink-2">modelId</span> for every agent.
+      Edit role prompts in <span class="font-mono text-ink-2">prompts/agents/</span> and run
+      <span class="font-mono text-ink-2">npm run sync:agents</span>. Model selection stays in OpenCode.
     </div>
   </Panel>
 
@@ -215,7 +223,7 @@
       </div>
       <div class="flex items-center justify-between gap-4">
         <dt class="text-ink-4">State</dt>
-        <dd class="text-ink-2">Interface preview · no backend</dd>
+        <dd class="text-ink-2">{live ? "Local SQLite workforce backend" : "Interface preview · no backend"}</dd>
       </div>
     </dl>
   </Panel>

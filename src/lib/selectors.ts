@@ -16,6 +16,11 @@ export function agentById(snapshot: Snapshot, id: string | null): Agent | undefi
   return snapshot.agents.find((agent) => agent.id === id);
 }
 
+/** OpenCode agent name for real sessions. Falls back to the workforce agent id. */
+export function opencodeAgentId(agent: Agent): string {
+  return agent.opencodeAgentId ?? agent.id;
+}
+
 export function taskById(snapshot: Snapshot, id: string | null): Task | undefined {
   return snapshot.tasks.find((task) => task.id === id);
 }

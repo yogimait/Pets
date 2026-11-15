@@ -3,6 +3,11 @@
   import { app, openOrchestrator } from "../state/app.svelte.ts";
   import { VIEW_TITLES } from "../nav.ts";
   import { buildMetrics } from "../selectors.ts";
+  import { workforceAvailable } from "../workforce.ts";
+
+  const live = workforceAvailable();
+  let hasSession = $derived(app.snapshot ? app.snapshot.tasks.some((task) => !!task.sessionId) : false);
+  let dataLabel = $derived(live ? (hasSession ? "Local data" : "Local seed") : "Demo data");
 
   let metrics = $derived(app.snapshot ? buildMetrics(app.snapshot) : null);
   let subtitle = $derived(
@@ -23,10 +28,14 @@
   <div class="flex shrink-0 items-center gap-2">
     <span
       class="hidden items-center gap-1.5 rounded border border-line-soft bg-surface px-2 py-1 text-[10px] text-ink-3 sm:inline-flex"
-      title="Workforce data is mock. The OpenCode runtime panel in Settings can start real local sessions."
+      title={live
+        ? hasSession
+          ? "Workforce data lives in local SQLite and at least one task is linked to a real OpenCode session."
+          : "The local database was seeded from fixtures. Run or plan work to create real session state."
+        : "Workforce data is mock. The OpenCode runtime panel in Settings can start real local sessions."}
     >
-      <span class="size-1 rounded-full bg-warn" aria-hidden="true"></span>
-      Demo data
+      <span class="size-1 rounded-full {live && hasSession ? 'bg-ok' : 'bg-warn'}" aria-hidden="true"></span>
+      {dataLabel}
     </span>
 
     <button

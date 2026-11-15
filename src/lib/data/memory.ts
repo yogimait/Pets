@@ -18,11 +18,11 @@ export const memory: MemoryEntry[] = [
   },
   {
     id: "mem-02",
-    title: "Mock data must be labeled everywhere it appears",
+    title: "Local and demo data must stay visibly distinct",
     kind: "convention",
     projectId: "core",
     content:
-      "The first release has no backend. Every screen that shows workforce state carries a visible Demo data marker, and the orchestrator panel states that replies are scripted. Do not add UI that implies live agents, live model calls, or persisted history.",
+      "The desktop app stores workforce state in local SQLite and links tasks to real OpenCode sessions. The browser-only preview still uses fixtures. Keep the Local data marker in the desktop app and the Demo data marker in the browser. Do not imply a model ran, a task completed, or memory changed before the backend stored it.",
     tags: ["honesty", "interface"],
     source: "Project brief, Agent Bots",
     confidence: 0.98,
@@ -50,7 +50,7 @@ export const memory: MemoryEntry[] = [
     kind: "decision",
     projectId: "core",
     content:
-      "All workforce data enters the renderer through loadSnapshot in src/lib/data/provider.ts. The mock implementation returns local fixtures. A future Tauri command or HTTP client replaces that file only; views and selectors do not change.",
+      "All workforce data enters the renderer through loadSnapshot in src/lib/data/provider.ts. In the desktop app it loads the Rust SQLite snapshot and seeds once from fixtures if empty. In the browser it returns fixtures. Views and selectors do not talk to the backend directly.",
     tags: ["architecture", "data"],
     source: "docs/App-Architecture.md",
     confidence: 0.95,

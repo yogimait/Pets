@@ -4,6 +4,7 @@ import { hoursAgo, minutesAgo, daysAgo } from "./clock.ts";
 export const agents: Agent[] = [
   {
     id: "orchestrator",
+    opencodeAgentId: "orchestrator-workforce",
     name: "Orchestrator",
     role: "Orchestrator",
     description:
@@ -23,6 +24,7 @@ export const agents: Agent[] = [
   },
   {
     id: "dreamer",
+    opencodeAgentId: "dreamer",
     name: "Dreamer",
     role: "Memory",
     description:
@@ -42,6 +44,7 @@ export const agents: Agent[] = [
   },
   {
     id: "forge",
+    opencodeAgentId: "forge",
     name: "Forge",
     role: "Backend Developer",
     description:
@@ -61,6 +64,7 @@ export const agents: Agent[] = [
   },
   {
     id: "pixel",
+    opencodeAgentId: "pixel",
     name: "Pixel",
     role: "Frontend Developer",
     description:
@@ -80,6 +84,7 @@ export const agents: Agent[] = [
   },
   {
     id: "scout",
+    opencodeAgentId: "scout",
     name: "Scout",
     role: "Research",
     description:
@@ -99,6 +104,7 @@ export const agents: Agent[] = [
   },
   {
     id: "voice",
+    opencodeAgentId: "voice",
     name: "Voice",
     role: "Marketing",
     description:
@@ -118,6 +124,7 @@ export const agents: Agent[] = [
   },
   {
     id: "probe",
+    opencodeAgentId: "probe",
     name: "Probe",
     role: "Testing",
     description:
@@ -137,6 +144,7 @@ export const agents: Agent[] = [
   },
   {
     id: "iris",
+    opencodeAgentId: "iris",
     name: "Iris",
     role: "UI/UX Designer",
     description:
@@ -156,6 +164,7 @@ export const agents: Agent[] = [
   },
   {
     id: "verity",
+    opencodeAgentId: "verity",
     name: "Verity",
     role: "Auditing Engineer",
     description:

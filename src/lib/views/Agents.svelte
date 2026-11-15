@@ -1,7 +1,7 @@
 <script lang="ts">
   import Avatar from "../components/Avatar.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
-  import { modelLabel, taskById } from "../selectors.ts";
+  import { opencodeAgentId, taskById } from "../selectors.ts";
   import { openSheet } from "../state/app.svelte.ts";
   import { timeAgo } from "../format.ts";
   import type { AgentStatus, Snapshot } from "../types.ts";
@@ -19,9 +19,9 @@
   let filter = $state<AgentStatus | "all">("all");
   let agents = $derived(filter === "all" ? snapshot.agents : snapshot.agents.filter((agent) => agent.status === filter));
 
-  function modelFor(agentId: string): string {
+  function runtimeAgent(agentId: string): string {
     const agent = snapshot.agents.find((candidate) => candidate.id === agentId);
-    return agent ? modelLabel(snapshot, agent).model : "unassigned";
+    return agent ? opencodeAgentId(agent) : "unassigned";
   }
 
   function currentTask(taskId: string | null): string {
@@ -78,7 +78,7 @@
         </p>
 
         <div class="mt-auto flex items-center justify-between gap-2 border-t border-line-soft pt-2.5 text-[9.5px] text-ink-4">
-          <span class="truncate font-mono">{modelFor(agent.id)}</span>
+          <span class="truncate font-mono">OpenCode: {runtimeAgent(agent.id)}</span>
           <span class="shrink-0">{agent.successRate}% · {agent.tasksCompleted} done</span>
         </div>
         <p class="mt-1 text-[9.5px] text-ink-4">last active {timeAgo(agent.lastActiveAt)}</p>

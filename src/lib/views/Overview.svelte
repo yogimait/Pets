@@ -63,6 +63,11 @@
         {#each tasks as task (task.id)}
           <TaskRow {task} {snapshot} />
         {/each}
+        {#if tasks.length === 0}
+          <p class="px-3.5 py-6 text-center text-[11px] text-ink-4">
+            No open work. Plan a goal or open the task board to start.
+          </p>
+        {/if}
       </div>
     </section>
 
@@ -80,6 +85,11 @@
         {#each events as event (event.id)}
           <ActivityRow {event} {snapshot} />
         {/each}
+        {#if events.length === 0}
+          <p class="px-3.5 py-6 text-center text-[11px] text-ink-4">
+            No activity yet. Send, plan, or run work to populate the feed.
+          </p>
+        {/if}
       </div>
     </section>
   </div>

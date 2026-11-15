@@ -1,4 +1,5 @@
 mod opencode;
+mod workforce;
 
 use opencode::OpenCodeState;
 use serde::Serialize;
@@ -36,14 +37,14 @@ fn fnv1a(value: &str) -> String {
     format!("{hash:016x}")
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
 }
 
-fn global_policy_path() -> PathBuf {
+pub(crate) fn global_policy_path() -> PathBuf {
     if let Ok(path) = std::env::var("AGENT_BOTS_GLOBAL_POLICY") {
         return PathBuf::from(path);
     }
@@ -128,6 +129,16 @@ pub fn run() {
         .manage(OpenCodeState::new())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            let store = workforce::WorkforceStore::new(data_dir.join("workforce.db"))
+                .map_err(|error| -> Box<dyn std::error::Error> {
+                    Box::new(std::io::Error::other(error))
+                })?;
+            app.manage(store);
+
             let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Backquote);
             if let Err(error) = app.global_shortcut().on_shortcut(shortcut, |app, _shortcut, event| {
                 if event.state() == ShortcutState::Pressed {
@@ -153,7 +164,21 @@ pub fn run() {
             opencode::runtime_messages,
             opencode::runtime_permissions,
             opencode::runtime_reply_permission,
-            opencode::runtime_stop
+            opencode::runtime_stop,
+            workforce::workforce_snapshot,
+            workforce::workforce_seed,
+            workforce::workforce_inspect_project,
+            workforce::workforce_create_project,
+            workforce::workforce_plan,
+            workforce::workforce_send,
+            workforce::workforce_tick,
+            workforce::workforce_poll,
+            workforce::workforce_reply_task_permission,
+            workforce::workforce_run_task,
+            workforce::workforce_accept_task,
+            workforce::workforce_abort_task,
+            workforce::workforce_dreamer,
+            workforce::workforce_decide_proposal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -9,9 +9,9 @@ export const projects: Project[] = [
     description: "Desktop control center for the personal AI workforce.",
     status: "active",
     context:
-      "Tauri 2 shell with a Svelte 5 interface. The first release is interface-only: realistic mock data, no model calls, no backend connection. Everything on screen must be honest about being simulated.",
+      "Tauri 2 shell with a Svelte 5 interface. The desktop app stores workforce state in local SQLite and runs specialist work through OpenCode sessions. The browser-only preview keeps the fixture snapshot. Everything on screen must distinguish stored local state from simulated state.",
     instructions:
-      "Keep the renderer thin and dependency-light. All workforce data enters through the snapshot provider so a real backend can replace the mock in one place. Prefer fewer, better screens over feature breadth.",
+      "Keep the renderer thin and dependency-light. Route workforce reads and writes through the typed command client, never through fixtures. Prefer fewer, better screens over feature breadth.",
     repoPath: "D:\\Projects\\agent-bots",
     createdAt: daysAgo(21),
   },

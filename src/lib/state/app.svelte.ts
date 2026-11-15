@@ -2,9 +2,27 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ChatMessage, ProposalStatus, Snapshot } from "../types.ts";
 import { loadSnapshot } from "../data/provider.ts";
 import { readPolicy, type PolicyBundle } from "../policy.ts";
+import {
+  workforceAcceptTask,
+  workforceAbortTask,
+  workforceAvailable,
+  workforceCreateProject,
+  workforceDecideProposal,
+  workforceDreamer,
+  workforcePlan,
+  workforcePoll,
+  workforceReplyTaskPermission,
+  workforceRunTask,
+  workforceSend,
+  workforceSnapshot,
+  workforceTick,
+  type PermissionDecision,
+  type PlanResult,
+  type ProjectInput,
+} from "../workforce.ts";
 import type { View } from "../nav.ts";
 
-export type SheetKind = "agent" | "project" | "task" | "memory" | "proposal";
+export type SheetKind = "agent" | "project" | "project-new" | "task" | "memory" | "proposal";
 
 export interface SheetRef {
   kind: SheetKind;
@@ -24,18 +42,38 @@ export const app = $state({
   policyProjectId: null as string | null,
   policyLoading: false,
   policyError: null as string | null,
+  workforceError: null as string | null,
+  workforceBusy: false,
 });
 
 let started = false;
 
+async function loadInitialSnapshot(): Promise<Snapshot> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await loadSnapshot();
+    } catch (error) {
+      const message = String(error);
+      if (attempt >= 20 || !message.includes("state not managed")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
+
 export async function init(): Promise<void> {
   if (started) return;
   started = true;
-  const snapshot = await loadSnapshot();
-  app.snapshot = snapshot;
-  app.chat = snapshot.chat;
+  try {
+    const snapshot = await loadInitialSnapshot();
+    app.snapshot = snapshot;
+    app.chat = snapshot.chat ?? [];
+  } catch (error) {
+    app.workforceError = String(error);
+    return;
+  }
   await loadPolicy("core");
   app.ready = true;
+  startWorkforceSync();
 }
 
 export async function loadPolicy(projectId: string | null): Promise<void> {
@@ -57,7 +95,128 @@ export async function reloadPolicy(): Promise<void> {
   await loadPolicy(app.policyProjectId);
 }
 
-export function decideProposal(id: string, status: Extract<ProposalStatus, "approved" | "rejected">): void {
+// Every workforce action returns the authoritative snapshot. View and sheet stay untouched.
+async function runWorkforceAction(call: () => Promise<Snapshot>): Promise<boolean> {
+  app.workforceBusy = true;
+  app.workforceError = null;
+  try {
+    app.snapshot = await call();
+    return true;
+  } catch (error) {
+    app.workforceError = String(error);
+    return false;
+  } finally {
+    app.workforceBusy = false;
+  }
+}
+
+export async function refreshWorkforce(): Promise<void> {
+  if (!workforceAvailable()) return;
+  try {
+    const next = await workforceSnapshot();
+    if (!next) return;
+    app.snapshot = next;
+    app.chat = next.chat ?? [];
+    app.workforceError = null;
+  } catch (error) {
+    app.workforceError = String(error);
+  }
+}
+
+export async function createProject(input: ProjectInput): Promise<string | null> {
+  app.workforceBusy = true;
+  app.workforceError = null;
+  try {
+    const next = await workforceCreateProject(input);
+    app.snapshot = next;
+    const wantedKey = input.key.trim().toUpperCase();
+    return next.projects.find((project) => project.key.toUpperCase() === wantedKey)?.id ?? null;
+  } catch (error) {
+    app.workforceError = String(error);
+    return null;
+  } finally {
+    app.workforceBusy = false;
+  }
+}
+
+export async function sendOrchestrator(projectId: string, text: string): Promise<boolean> {
+  app.workforceError = null;
+  try {
+    const reply = await workforceSend(projectId, text);
+    app.chat.push({ id: `chat-${Date.now()}-r`, role: "orchestrator", text: reply.text, at: Date.now(), refs: [] });
+    return true;
+  } catch (error) {
+    app.workforceError = String(error);
+    return false;
+  }
+}
+
+export async function planWork(projectId: string, goal: string): Promise<PlanResult | null> {
+  app.workforceBusy = true;
+  app.workforceError = null;
+  try {
+    const result = await workforcePlan(projectId, goal);
+    await refreshWorkforce();
+    return result;
+  } catch (error) {
+    app.workforceError = String(error);
+    return null;
+  } finally {
+    app.workforceBusy = false;
+  }
+}
+
+export function runTask(taskId: string): Promise<boolean> {
+  return runWorkforceAction(() => workforceRunTask(taskId));
+}
+
+export function replyTaskPermission(
+  taskId: string,
+  requestId: string,
+  decision: PermissionDecision,
+): Promise<boolean> {
+  return runWorkforceAction(() => workforceReplyTaskPermission(taskId, requestId, decision));
+}
+
+export function acceptTask(taskId: string): Promise<boolean> {
+  return runWorkforceAction(() => workforceAcceptTask(taskId));
+}
+
+export function abortTask(taskId: string): Promise<boolean> {
+  return runWorkforceAction(() => workforceAbortTask(taskId));
+}
+
+export function runDreamer(projectId: string): Promise<boolean> {
+  return runWorkforceAction(() => workforceDreamer(projectId));
+}
+
+let syncStarted = false;
+let syncing = false;
+
+export function startWorkforceSync(): void {
+  if (syncStarted || !workforceAvailable()) return;
+  syncStarted = true;
+  setInterval(async () => {
+    if (syncing) return;
+    syncing = true;
+    try {
+      await workforceTick();
+      app.snapshot = await workforcePoll();
+      app.workforceError = null;
+    } catch (error) {
+      app.workforceError = String(error);
+    } finally {
+      syncing = false;
+    }
+  }, 4000);
+}
+
+export async function decideProposal(id: string, status: Extract<ProposalStatus, "approved" | "rejected">): Promise<void> {
+  if (workforceAvailable()) {
+    await runWorkforceAction(() => workforceDecideProposal(id, status));
+    return;
+  }
+  // Browser-only preview: the decision lives in this session and is never written.
   const proposal = app.snapshot?.proposals.find((candidate) => candidate.id === id);
   if (!proposal || proposal.status !== "pending") return;
   proposal.status = status;
@@ -89,7 +248,12 @@ export function navigateTo(kind: SheetKind, id: string): void {
     openTask(id);
     return;
   }
-  app.view = kind === "agent" ? "agents" : kind === "project" ? "projects" : "memory";
+  app.view =
+    kind === "agent"
+      ? "agents"
+      : kind === "project" || kind === "project-new"
+        ? "projects"
+        : "memory";
   app.sheet = { kind, id };
   app.paletteOpen = false;
 }

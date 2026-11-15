@@ -3,11 +3,14 @@
   import Panel from "../components/Panel.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
   import { memoryFiltered, pendingProposals, projectById } from "../selectors.ts";
-  import { openSheet } from "../state/app.svelte.ts";
+  import { app, openSheet, runDreamer } from "../state/app.svelte.ts";
+  import { workforceAvailable } from "../workforce.ts";
   import { percent, timeAgo } from "../format.ts";
   import type { MemoryKind, Snapshot } from "../types.ts";
 
   let { snapshot }: { snapshot: Snapshot } = $props();
+
+  const live = workforceAvailable();
 
   const kinds: { id: MemoryKind | "all"; label: string }[] = [
     { id: "all", label: "All" },
@@ -21,6 +24,8 @@
   let kind = $state<MemoryKind | "all">("all");
   let projectId = $state("all");
   let query = $state("");
+  let dreamerProject = $state("core");
+  let dreamerBusy = $state(false);
 
   let entries = $derived(
     memoryFiltered(snapshot, {
@@ -54,9 +59,35 @@
     </p>
   </div>
 
-  <Panel title="Dreamer" subtitle="Memory agent · idle">
+  <Panel title="Dreamer" subtitle="Memory agent · on demand">
     {#snippet action()}
-      <StatusBadge status="idle" label="Idle" />
+      {#if live}
+        <div class="flex items-center gap-1.5">
+          <select
+            bind:value={dreamerProject}
+            aria-label="Dreamer project"
+            class="h-6 rounded border border-line-soft bg-surface px-1 text-[10px] text-ink-2 focus:border-accent/40 focus:outline-none"
+          >
+            {#each snapshot.projects as project (project.id)}<option value={project.id}>{project.key}</option>{/each}
+          </select>
+          <button
+            onclick={async () => {
+              dreamerBusy = true;
+              try {
+                await runDreamer(dreamerProject);
+              } finally {
+                dreamerBusy = false;
+              }
+            }}
+            disabled={dreamerBusy || app.workforceBusy}
+            class="rounded border border-line-soft px-1.5 py-0.5 text-[10px] text-ink-3 transition-colors hover:text-ink disabled:opacity-40"
+          >
+            {dreamerBusy || app.workforceBusy ? "Running" : "Run Dreamer"}
+          </button>
+        </div>
+      {:else}
+        <StatusBadge status="idle" label="Idle" />
+      {/if}
     {/snippet}
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <div>
@@ -77,8 +108,15 @@
       </div>
     </div>
     <p class="mt-3 border-t border-line-soft pt-2.5 text-[10.5px] leading-relaxed text-ink-4">
-      Entries are read-only in this build. Proposals can be approved or rejected for the session; no canonical memory write is implemented.
+      {live
+        ? "Dreamer reads existing task and memory evidence and proposes entries. Nothing reaches memory until you approve a proposal."
+        : "Entries are read-only in this browser preview. Proposals can be approved or rejected for the session only; no memory write exists without the desktop backend."}
     </p>
+    {#if app.workforceError}
+      <p class="mt-2 rounded-control border border-bad/30 bg-bad/5 px-2.5 py-2 text-[10.5px] leading-relaxed text-bad" role="alert">
+        {app.workforceError}
+      </p>
+    {/if}
   </Panel>
 
   <div class="grid items-start gap-4 xl:grid-cols-2">

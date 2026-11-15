@@ -25,6 +25,8 @@ export interface Provider {
 
 export interface Agent {
   id: string;
+  /** OpenCode agent name used for real sessions. Falls back to `id`. */
+  opencodeAgentId?: string;
   name: string;
   role: string;
   description: string;
@@ -73,6 +75,13 @@ export interface TaskStep {
   done: boolean;
 }
 
+export interface TaskPermission {
+  id: string;
+  action: string;
+  resources: string[];
+  message?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -87,6 +96,14 @@ export interface Task {
   updatedAt: number;
   steps: TaskStep[];
   messages: TaskMessage[];
+  acceptance?: string;
+  dependsOn?: string[];
+  sessionId?: string | null;
+  result?: string | null;
+  autoStart?: boolean;
+  startedAt?: number;
+  finishedAt?: number;
+  permission?: TaskPermission | null;
 }
 
 export interface ActivityEvent {
@@ -168,6 +185,8 @@ export interface DreamerRun {
 }
 
 export interface Snapshot {
+  /** SQLite snapshot schema version. Missing means the pre-runtime seed. */
+  schemaVersion?: number;
   agents: Agent[];
   projects: Project[];
   tasks: Task[];

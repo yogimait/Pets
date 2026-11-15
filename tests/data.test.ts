@@ -6,6 +6,7 @@ import {
   buildMetrics,
   memoryFiltered,
   modelLabel,
+  opencodeAgentId,
   pendingProposals,
   projectStats,
   taskStepProgress,
@@ -58,6 +59,24 @@ test("an agent's current task is running and owned by that agent", () => {
     assert.ok(task, `agent ${agent.id} points at a missing task`);
     assert.equal(task.status, "running", `agent ${agent.id} current task is not running`);
     assert.equal(task.ownerId, agent.id, `agent ${agent.id} current task has another owner`);
+  }
+});
+
+test("every agent keeps one unique OpenCode agent id", () => {
+  const ids = snapshot.agents.map((agent) => opencodeAgentId(agent));
+  assert.equal(new Set(ids).size, ids.length, "OpenCode agent ids contain duplicates");
+  for (const agent of snapshot.agents) {
+    assert.ok(ids.length > 0);
+    assert.equal(opencodeAgentId(agent), agent.opencodeAgentId ?? agent.id);
+  }
+});
+
+test("task dependencies resolve and never point at the task itself", () => {
+  for (const task of snapshot.tasks) {
+    for (const dependencyId of task.dependsOn ?? []) {
+      assert.notEqual(dependencyId, task.id, `task ${task.id} depends on itself`);
+      assert.ok(taskIds.has(dependencyId), `task ${task.id} depends on unknown task ${dependencyId}`);
+    }
   }
 });
 

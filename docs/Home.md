@@ -1,46 +1,70 @@
 # Home
 
-Agent Bots is a local-first desktop control center for a personal AI workforce. One orchestrator is the interface; specialist agents do the work; Dreamer keeps durable memory. This repository holds two layers:
+Agent Bots is a local-first desktop control center for a personal AI workforce. One orchestrator is the interface; specialist agents do the work; Dreamer keeps durable memory.
 
-1. **Desktop application** (implemented): the Tauri 2 and Svelte 5 interface, currently running on a realistic mock snapshot.
-2. **Bot workspace** (existing): the OpenCode agent definitions and SQLite task board that can become the first real orchestrator backend.
+The first complete draft now has:
 
-## Current state
-
-The app is an interface preview for workforce data. It has no backend for agents, tasks, projects, or memory, and no live agent cards. The OpenCode runtime panel in Settings is live: it can start a real local OpenCode session, stream its messages by polling, and reply to permission requests. The orchestrator overlay remains scripted.
+- SQLite persistence for the full workforce snapshot.
+- New/import project onboarding with folder checks, starter policy/README, and optional Git init.
+- A real orchestrator chat and Plan & run mode.
+- Generated OpenCode agents for every role.
+- A task scheduler with two concurrent sessions, one owner per task, dependencies, timeouts, and retries.
+- Task-to-session linking with review and accept.
+- Dreamer memory proposals and approval.
+- A policy gate for global and project `AGENTS.md`.
+- Honest browser fallback when the desktop backend is absent.
 
 ## Run
 
 ```sh
 npm install
-npm run tauri dev      # desktop window
-npm run dev            # renderer only, http://localhost:1420
+npm run tauri dev      # desktop app
+npm run dev            # browser preview only
 ```
 
 Verification:
 
 ```sh
-npm run check          # svelte-check, zero diagnostics
-npm test               # 10 dataset and selector invariants
-npm run build          # production renderer bundle
+npm run check
+npm test
+npm run build
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run check:agents
+npx tauri build --no-bundle
 ```
+
+Port 1420 is strict. Stop a standalone `npm run dev` before `npm run tauri dev`.
+
+## How to use it
+
+Create or import a project in **Projects** first. Then open the orchestrator with `Alt+\`` or the topbar button.
+
+- **Chat** asks the orchestrator about current work or gives a direct instruction.
+- **Plan** turns a project goal into queued tasks. The scheduler starts up to two ready tasks automatically.
+- Open a task to run or retry it, watch the session id, read the result, and accept it.
+- Open Memory and run Dreamer to turn task evidence into pending proposals.
+- Approve a proposal to write it to canonical memory.
+
+See [[First-Draft]] for the operator walkthrough.
 
 ## Docs
 
-- [[Architecture]] — desktop layers, provider seam, security, integration path.
-- [[Agent-Prompts]] — role prompts, routing, boundaries, policy precedence.
-- [[Design-System]] — matte dark identity, tokens, component and motion rules.
-- [[Data-Model]] — entities, relationships, invariants, fixture layout.
-- [[Testing]] — commands, what is covered, manual verification.
-- [[Bot-Workspace]] — OpenCode agents, task board, and future mapping.
+- [[Architecture]] - control plane, OpenCode bridge, scheduler, security.
+- [[First-Draft]] - how to operate the current build.
+- [[Agent-Prompts]] - role prompts, sync, routing, policy precedence.
+- [[Data-Model]] - SQLite snapshot, entities, invariants.
+- [[Testing]] - checks, coverage, evaluation matrix.
+- [[Design-System]] - matte dark identity, tokens, component rules.
+- [[Bot-Workspace]] - legacy OpenCode workspace and mapping.
 
-## Map
+## Current limits
 
-```mermaid
-flowchart LR
-  UI[Desktop interface] --> Snapshot[Snapshot provider]
-  Snapshot --> Mock[Local fixtures]
-  Snapshot -. future .-> Backend[Orchestrator backend]
-  Backend -. future .-> Board[(taskboard.db)]
-  Backend -. future .-> Agents[OpenCode bots]
-```
+- No SSE; polling.
+- No worktrees.
+- No manual task creation form; tasks come from Plan or the seed.
+- No pets habitat.
+- Manual live model smoke passed; full Plan/task/Dreamer evaluation still pending.
+- One chat session per project.
+
+Related: [[Architecture]] · [[Data-Model]] · [[Testing]]

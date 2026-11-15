@@ -30,8 +30,8 @@ This machine has limited free RAM. If a Tauri build fails with `only metadata st
 2. `src/lib/types.ts` is the contract. Keep it JSON-serializable and in epoch milliseconds.
 3. New non-trivial selectors go in `src/lib/selectors.ts` with an invariant in `tests/data.test.ts`.
 4. Use the design tokens in `src/app.css`. No new colors, shadows, gradients, or font families without updating `docs/Design-System.md`.
-5. The build is a simulation. Never remove the `Demo data` marker, the `simulation` label in the orchestrator overlay, or the honesty notes in Settings unless a real backend is wired.
-6. The orchestrator is a separate Tauri window (`orchestrator`, 720x420). Do not reintroduce a docked chat panel. Its visual language is the square black daily-tracker surface, not the charcoal panel system.
+5. The desktop app has a real local backend: SQLite plus OpenCode sessions. The browser-only preview is still demo/scripted. Keep `Local seed` / `Local data` and `Demo data` labels honest; never claim a model ran, a task completed, or memory changed before the backend stored it.
+6. The orchestrator is a separate resizable Tauri window (`orchestrator`, 920x680 default, 640x480 floor). Do not reintroduce a docked chat panel. Its visual language is the square black daily-tracker surface, not the charcoal panel system.
 7. No dependency without a stated reason. The renderer uses Svelte, Tailwind, Lucide, and the Tauri API only. Global shortcut is the only Rust plugin.
 8. Keep Tauri capabilities at `core:default` until a command actually needs more.
 9. Update the matching doc when architecture, data shape, tokens, or verification changes.
@@ -40,4 +40,4 @@ This machine has limited free RAM. If a Tauri build fails with `only metadata st
 
 ## Verification gate
 
-Before declaring work done: `npm run check`, `npm test`, `npm run build`, and `cargo check` must pass. For UI work, also run the Impeccable detector and check the affected views at 1440x900 and 1080x720. For overlay work, verify the 720x420 window and `Alt+\`` behavior in the real Tauri build.
+Before declaring work done: `npm run check`, `npm test`, `npm run build`, and `cargo check` must pass. For UI work, also run the Impeccable detector and check the affected views at 1440x900 and 1080x720. For overlay work, verify the 920x680 window, resizing, and `Alt+\`` behavior in the real Tauri build.

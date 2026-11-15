@@ -1,13 +1,17 @@
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-const PORT_START: u16 = 4097;
-const PORT_END: u16 = 4197;
+#[derive(Clone)]
+struct SharedTarget {
+    base: String,
+    password: String,
+    port: u16,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,39 +24,40 @@ pub struct RuntimeInfo {
 
 pub struct OpenCodeState {
     client: Client,
-    password: String,
-    port: u16,
-    child: Mutex<Option<Child>>,
+    target: Mutex<Option<SharedTarget>>,
 }
 
 impl OpenCodeState {
     pub fn new() -> Self {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|value| value.as_nanos())
-            .unwrap_or(0);
-        let password = std::env::var("OPENCODE_SERVER_PASSWORD")
-            .unwrap_or_else(|_| format!("agent-bots-{}-{stamp}", std::process::id()));
         Self {
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(Duration::from_secs(30))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
-            password,
-            port: find_free_port(),
-            child: Mutex::new(None),
+            target: Mutex::new(None),
         }
     }
 
-    fn base(&self) -> String {
-        format!("http://127.0.0.1:{}", self.port)
+    fn target(&self) -> Result<SharedTarget, String> {
+        self.target
+            .lock()
+            .map_err(|_| "Runtime lock poisoned".to_string())?
+            .clone()
+            .ok_or_else(|| "OpenCode service is not connected.".to_string())
     }
 
-    async fn get_json(&self, path: &str) -> Result<Value, String> {
+    fn set_target(&self, target: Option<SharedTarget>) -> Result<(), String> {
+        let mut guard = self.target.lock().map_err(|_| "Runtime lock poisoned".to_string())?;
+        *guard = target;
+        Ok(())
+    }
+
+    pub(crate) async fn get_json(&self, path: &str) -> Result<Value, String> {
+        let target = self.target()?;
         let response = self
             .client
-            .get(format!("{}{}", self.base(), path))
-            .basic_auth("opencode", Some(&self.password))
+            .get(format!("{}{}", target.base, path))
+            .basic_auth("opencode", Some(&target.password))
             .send()
             .await
             .map_err(|error| format!("OpenCode request failed: {error}"))?;
@@ -67,11 +72,12 @@ impl OpenCodeState {
         serde_json::from_str(&text).map_err(|error| format!("OpenCode JSON failed: {error}"))
     }
 
-    async fn post_json(&self, path: &str, body: Value) -> Result<Value, String> {
+    pub(crate) async fn post_json(&self, path: &str, body: Value) -> Result<Value, String> {
+        let target = self.target()?;
         let response = self
             .client
-            .post(format!("{}{}", self.base(), path))
-            .basic_auth("opencode", Some(&self.password))
+            .post(format!("{}{}", target.base, path))
+            .basic_auth("opencode", Some(&target.password))
             .json(&body)
             .send()
             .await
@@ -90,11 +96,12 @@ impl OpenCodeState {
         serde_json::from_str(&text).map_err(|error| format!("OpenCode JSON failed: {error}"))
     }
 
-    async fn post_empty(&self, path: &str) -> Result<Value, String> {
+    pub(crate) async fn post_empty(&self, path: &str) -> Result<Value, String> {
+        let target = self.target()?;
         let response = self
             .client
-            .post(format!("{}{}", self.base(), path))
-            .basic_auth("opencode", Some(&self.password))
+            .post(format!("{}{}", target.base, path))
+            .basic_auth("opencode", Some(&target.password))
             .send()
             .await
             .map_err(|error| format!("OpenCode request failed: {error}"))?;
@@ -113,6 +120,7 @@ impl OpenCodeState {
     }
 
     async fn info(&self) -> Result<RuntimeInfo, String> {
+        let target = self.target()?;
         let value = self.get_json("/api/info").await?;
         Ok(RuntimeInfo {
             version: value
@@ -121,82 +129,43 @@ impl OpenCodeState {
                 .unwrap_or("unknown")
                 .to_string(),
             pid: value.get("pid").and_then(Value::as_u64).unwrap_or(0) as u32,
-            port: self.port,
+            port: target.port,
             connected: true,
         })
     }
 
-    async fn ensure(&self, project: &str) -> Result<RuntimeInfo, String> {
+    pub(crate) async fn ensure(&self, project: &str) -> Result<RuntimeInfo, String> {
         debug_log(&format!("ensure start project={project}"));
         if !Path::new(project).is_dir() {
             return Err(format!("Project directory does not exist: {project}"));
         }
 
         if let Ok(info) = self.info().await {
-            debug_log("ensure found running service");
+            debug_log("ensure found connected service");
             return Ok(info);
         }
-        debug_log("ensure service not running, spawning");
 
-        {
-            let mut guard = self.child.lock().map_err(|_| "Runtime lock poisoned".to_string())?;
-            let alive = match guard.as_mut() {
-                Some(child) => child.try_wait().ok().flatten().is_none(),
-                None => false,
-            };
-            if !alive {
-                if let Some(mut old) = guard.take() {
-                    let _ = old.kill();
-                }
-                *guard = Some(spawn_server(project, &self.password, self.port)?);
-            }
-        }
+        self.set_target(None)?;
+        let target = connect_shared_service()?;
+        debug_log(&format!(
+            "ensure connected shared service port={}",
+            target.port
+        ));
+        self.set_target(Some(target))?;
 
         for _ in 0..60 {
-            std::thread::sleep(std::time::Duration::from_millis(250));
             if let Ok(info) = self.info().await {
                 debug_log("ensure service ready");
                 return Ok(info);
             }
+            std::thread::sleep(Duration::from_millis(250));
         }
 
-        debug_log("ensure service not ready after timeout");
-        Err(format!(
-            "OpenCode did not become ready on port {}. Check the service log.",
-            self.port
-        ))
-    }
-}
-
-fn find_free_port() -> u16 {
-    for port in PORT_START..=PORT_END {
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
-            return port;
-        }
-    }
-    PORT_START
-}
-
-fn kill_tree(child: &mut Child) {
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-impl Drop for OpenCodeState {
-    fn drop(&mut self) {
-        if let Ok(mut guard) = self.child.lock() {
-            if let Some(mut child) = guard.take() {
-                kill_tree(&mut child);
-            }
-        }
+        self.set_target(None)?;
+        Err(
+            "OpenCode background service did not become ready. Run `opencode` once or `opencode service start`, then retry."
+                .to_string(),
+        )
     }
 }
 
@@ -208,38 +177,92 @@ fn debug_log(message: &str) {
     }
 }
 
-fn spawn_server(project: &str, password: &str, port: u16) -> Result<Child, String> {
-    debug_log(&format!("spawn_server cwd={project} port={port}"));
-    #[cfg(windows)]
-    let mut command = {
+fn config_home() -> PathBuf {
+    std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join(".config")
+        .join("opencode")
+}
+
+fn service_status_url() -> Option<String> {
+    let output = if cfg!(windows) {
+        Command::new("cmd")
+            .args(["/C", "opencode service status"])
+            .output()
+            .ok()?
+    } else {
+        Command::new("opencode")
+            .args(["service", "status"])
+            .output()
+            .ok()?
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("http://"))
+        .map(|line| line.trim_end_matches('/').to_string())
+}
+
+fn service_password() -> Option<String> {
+    let text = std::fs::read_to_string(config_home().join("service.json")).ok()?;
+    let value: Value = serde_json::from_str(&text).ok()?;
+    value
+        .get("password")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn port_from_base(base: &str) -> u16 {
+    base.rsplit(':')
+        .next()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(0)
+}
+
+fn discover_shared_service() -> Option<SharedTarget> {
+    let base = service_status_url()?;
+    let password = service_password()?;
+    Some(SharedTarget {
+        port: port_from_base(&base),
+        base,
+        password,
+    })
+}
+
+fn start_shared_service() {
+    let mut command = if cfg!(windows) {
         let mut command = Command::new("cmd");
-        command.args(["/C", "opencode", "serve", "--port", &port.to_string()]);
+        command.args(["/C", "opencode service start"]);
         command
-    };
-
-    #[cfg(not(windows))]
-    let mut command = {
+    } else {
         let mut command = Command::new("opencode");
-        command.args(["serve", "--port", &port.to_string()]);
+        command.args(["service", "start"]);
         command
     };
-
-    command
-        .args(["--hostname", "127.0.0.1"])
-        .current_dir(project)
-        .env("OPENCODE_SERVER_PASSWORD", password)
-        .stdin(Stdio::null())
+    let _ = command
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            debug_log(&format!("spawn failed: {error}"));
-            format!("Could not start OpenCode: {error}")
-        })
-        .map(|child| {
-            debug_log(&format!("spawned pid={}", child.id()));
-            child
-        })
+        .status();
+}
+
+fn connect_shared_service() -> Result<SharedTarget, String> {
+    if let Some(target) = discover_shared_service() {
+        return Ok(target);
+    }
+    debug_log("shared service not found; starting it");
+    start_shared_service();
+    for _ in 0..60 {
+        std::thread::sleep(Duration::from_millis(250));
+        if let Some(target) = discover_shared_service() {
+            return Ok(target);
+        }
+    }
+    Err(
+        "OpenCode background service is not available. Run `opencode` once or `opencode service start`, then retry."
+            .to_string(),
+    )
 }
 
 fn location_query(project: &str) -> String {
@@ -389,9 +412,7 @@ pub async fn runtime_reply_permission(
 
 #[tauri::command]
 pub fn runtime_stop(state: tauri::State<'_, OpenCodeState>) -> Result<(), String> {
-    let mut guard = state.child.lock().map_err(|_| "Runtime lock poisoned".to_string())?;
-    if let Some(mut child) = guard.take() {
-        kill_tree(&mut child);
-    }
-    Ok(())
+    // The app uses the shared OpenCode background service. Disconnect the
+    // adapter without stopping a service the user may still be using.
+    state.set_target(None)
 }

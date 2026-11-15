@@ -1,160 +1,182 @@
 # Architecture
 
-The desktop app is a thin, deterministic renderer over a workforce snapshot. It owns presentation, filtering, and local interaction state. It does not own orchestration, model calls, or persistence yet.
+Agent Bots is a local-first desktop control plane. The Svelte renderer owns presentation. The Rust core owns the workforce snapshot, task scheduling, policy gate, and the bridge to OpenCode. OpenCode owns model calls, tools, sessions, and permissions.
 
 ## Runtime
 
-- Tauri 2 shell with two windows. Main window 1360x820 with a 1080x720 floor. Orchestrator overlay 720x420, frameless, always on top, hidden until `Alt+\`` or the topbar button.
+- Tauri 2 shell with two windows: main 1360x820 (1080x720 floor) and a 920x680 resizable frameless orchestrator overlay (640x480 floor) opened with `Alt+\``.
 - Svelte 5 renderer with runes, TypeScript strict, Vite 8, Tailwind CSS 4.
-- One Tauri plugin: global-shortcut, registered in Rust. Capabilities stay at `core:default`; window show, hide, record navigation, and policy reading go through four app commands.
-- CSP allows local assets, inline styles (dynamic bar widths), and Tauri IPC only.
-- Rust exposes `open_orchestrator`, `hide_orchestrator`, `open_record`, and `read_policy`; everything else lives in the renderer.
+- SQLite database at `app_data_dir/workforce.db`. One `state` row stores the full snapshot as JSON. This is deliberate for the first draft; normalized tables come later.
+- The app attaches to the existing OpenCode background service instead of spawning a private `serve` child. It discovers the URL with `opencode service status` and reads the local IPC password from `~/.config/opencode/service.json`. The service stays alive when the app exits.
+- CSP allows local assets, inline styles, and Tauri IPC only. No remote page is loaded.
 
 ## Layers
 
 ```mermaid
 flowchart TD
-  App[App.svelte] --> Shell[Shell.svelte]
-  App --> OverlayWindow[OrchestratorWindow.svelte]
-  Shell --> Sidebar
-  Shell --> Topbar
-  Shell --> Views[7 views]
-  Shell --> Sheets[Detail sheets]
-  Shell --> Palette[Command palette]
-  OverlayWindow --> Overlay[OrchestratorOverlay.svelte]
-  Views --> Selectors[Pure selectors]
-  Overlay --> Responder[Scripted responder]
-  Responder --> Snapshot
-  Selectors --> Snapshot
-  Overlay -->|open_record| Rust[Rust commands]
-  Rust --> Shell
-  Snapshot[app.svelte.ts] --> Provider[provider.ts]
-  Provider --> Fixtures[data/*.ts]
-  Provider -. replace .-> Tauri[Tauri command or HTTP]
+  UI[Views and sheets] --> Store[app.svelte.ts]
+  Store --> Provider[data/provider.ts]
+  Provider -->|Tauri| SnapshotCmds[Rust workforce commands]
+  Provider -->|browser| Fixtures[Typed fixtures]
+  Store --> Client[workforce.ts]
+  Client --> SnapshotCmds
+  SnapshotCmds --> DB[(SQLite state)]
+  SnapshotCmds --> Scheduler[Scheduler and prompts]
+  Scheduler --> OC[OpenCode HTTP]
+  OC --> Sessions[Specialist sessions]
+  Overlay[Orchestrator overlay] --> Client
+  Overlay -->|browser| Scripted[Scripted fallback]
 ```
 
-Views receive a `Snapshot` prop from `Shell`. They never import fixtures directly, with one exception: the scripted orchestrator responder reads the live snapshot inside the overlay webview.
+Views receive a `Snapshot` prop. They never import fixtures directly. `src/lib/data/provider.ts` is the only read seam. `src/lib/workforce.ts` is the only write client.
 
-## Policy and prompts
+## State flow
 
-`src-tauri/src/lib.rs` exposes `read_policy(project_root)`. It reads the global file at `%USERPROFILE%\.config\opencode\AGENTS.md`, or `AGENT_BOTS_GLOBAL_POLICY` when set, plus the selected project's `AGENTS.md`. It returns content, path, byte count, a stable FNV-1a hash, and any read error. The renderer never reads arbitrary files.
+1. `init()` calls `loadSnapshot()`.
+2. In Tauri, `workforce_snapshot()` returns the SQLite snapshot. If empty, the renderer clones fixtures, calls `workforce_seed()`, and uses the stored result. Seeding normalizes fake running/review tasks to queued, disables seed auto-start, starts agents idle, and clears scripted chat, seed activity, and sample proposals/runs. A pre-runtime database without `schemaVersion: 3` is migrated on read; plan-created task ids are preserved, and v2 chat is kept while stale seed session ids are cleared.
+3. Every mutating command returns the authoritative snapshot. `runWorkforceAction()` replaces `app.snapshot`; the current view and sheet stay open.
+4. Every app window starts a guarded four-second sync: `workforce_tick()` then `workforce_poll()`. The per-page guard prevents duplicate intervals; the backend run lock and task claim keep concurrent ticks from starting the same task twice.
+5. The overlay refreshes the snapshot on focus and after chat or plan actions.
 
-`src/lib/prompts.ts` parses prompt frontmatter and assembles layers in order:
+## Workforce commands
 
-```text
-global policy
-project policy
-agent role
-task context
-retrieved memory
-shared contract
-```
+| Command | Purpose |
+|---|---|
+| `workforce_snapshot` | Read the stored snapshot or null |
+| `workforce_seed` | Store the fixture snapshot once |
+| `workforce_inspect_project` | Check a folder for existence, policy, README, and Git |
+| `workforce_create_project` | Add or import a project; optionally create folder, starter policy/README, and Git repo |
+| `workforce_plan` | Ask the orchestrator for a task plan, create tasks, append activity and chat |
+| `workforce_send` | Send an orchestrator chat prompt and store the reply |
+| `workforce_tick` | Start ready `autoStart` tasks |
+| `workforce_poll` | Finish running sessions into review or blocked |
+| `workforce_run_task` | Run or retry one task |
+| `workforce_accept_task` | Accept a review result and mark it done |
+| `workforce_abort_task` | Interrupt a session and block the task |
+| `workforce_dreamer` | Run Dreamer and store pending memory proposals |
+| `workforce_decide_proposal` | Approve or reject a pending proposal |
 
-`src/lib/prompt-files.ts` bundles `prompts/agents/*.md`, `prompts/shared/handoff.md`, and `prompts/shared/memory-proposal.md` at build time. Agent detail shows the assembled result. Settings shows the global and project policy path, hash, size, load time, and a reload control. In browser-only development the policy reader reports that files are available only in the desktop app.
+## Project onboarding
 
-The runtime does not yet enforce policy availability, but the interface exposes the state and tests assert layer order.
+Project setup is an app action, not an orchestrator action. The app owns the project list and filesystem boundary.
 
-## OpenCode runtime
+The **New project** sheet supports all three starting cases:
 
-The app treats OpenCode as the execution harness. It does not implement its own model/tool loop or MCP client.
+| Case | Flow |
+|---|---|
+| Folder exists, no project yet | Enter name/key/path. Leave folder creation off. The app checks the folder and can add a missing `AGENTS.md`. |
+| Mid-project | Import the same way. The folder's `AGENTS.md`, README, and current files remain the source of truth for agents. |
+| Idea only | Enter a new `D:\Projects\<name>` path, enable folder creation, and optionally create a starter `AGENTS.md`, `README.md`, and Git repository. |
 
-- `src-tauri/src/opencode.rs` starts a local `opencode serve` child on a free loopback port in the range 4097 to 4197, with a generated server password. If `OPENCODE_SERVER_PASSWORD` is set, the app attaches to a matching service instead.
-- The child is killed with its process tree on stop or app exit.
-- The adapter wraps health, agents, models, sessions, prompt, abort, messages, permission requests, permission replies, and MCP status.
-- The renderer never receives the server password and never starts the process.
-- The runtime panel in Settings can connect, list built-in agents and tool-capable models, start a real session, display messages and tool calls, reply to permission requests, and abort.
+The backend validates:
 
-Current limitations:
+- absolute folder path
+- unique project key and unique folder path
+- path is a directory
+- folder exists or create-folder is enabled
+- starter files are only created when missing
+- `git init` runs only when requested and no `.git` exists
 
-- Message and permission updates are polled, not streamed from the OpenCode event bus.
-- Sessions are not linked to app tasks yet.
-- Custom project agents are not synced into `.opencode/agents` yet, so the panel currently shows built-in OpenCode agents.
-- Runtime state is not persisted after app restart.
+The form never overwrites an existing `AGENTS.md` or `README.md`.
 
-## Provider seam
+## One orchestrator, project scopes
 
-`src/lib/data/provider.ts` exports one function:
+There is one orchestrator role, not one orchestrator per folder. Projects are scopes. The orchestrator's chat/session is project-scoped, and its context comes from the selected project record and that project's files.
 
-```ts
-loadSnapshot(): Promise<Snapshot>
-```
+The orchestrator knows:
 
-The mock implementation returns a structured clone of `src/lib/data/index.ts`. Swapping in a backend means changing that body, for example:
+- the app snapshot: projects, tasks, agents, memory, activity
+- the selected project's `repoPath`, context, instructions, and `AGENTS.md`
+- project files it can read with OpenCode tools
+- recent project chat
 
-```ts
-return invoke<Snapshot>("load_snapshot");
-```
+It does not know arbitrary folders on the PC. Generated agent permissions deny external directories, `.env` reads, and subagents. This is deliberate: the app controls filesystem access, the orchestrator controls planning inside the selected scope. Dreamer memory is scoped global/project/agent, not omniscient.
 
-No view, selector, or store changes. The contract is `src/lib/types.ts`.
+## OpenCode integration
 
-## State
+The app does not implement a second model/tool loop. It attaches to the shared OpenCode service and uses the HTTP API for sessions, prompts, messages, permissions, and MCP status.
 
-`src/lib/state/app.svelte.ts` is the store for each window:
+- Chat uses one session per project with `orchestrator-workforce`.
+- Plan uses a one-shot `orchestrator-workforce` session and expects a JSON object. The first JSON object is extracted from the reply.
+- Task sessions use the owner's OpenCode agent: `pixel`, `forge`, `scout`, `voice`, `probe`, `iris`, `verity`.
+- Dreamer uses `dreamer`.
+- A session becomes review when `time.idle >= startedAt` or an outcome is set. A missing session or a run longer than 30 minutes becomes blocked.
+- Permissions: generated agent files allow workspace tools but deny questions, secrets, external directories, subagents, and obvious destructive commands. Task sessions do not add broader session permissions.
+- Model selection: `AGENT_BOTS_MODEL` as `provider/model`, otherwise `opencode-go/deepseek-v4.1-flash`.
+- The global `AGENTS.md` and project `AGENTS.md` must both exist before a real run. The task prompt includes both policies, the role prompt, approved project memory, acceptance criteria, and the handoff contract.
+- Settings > OpenCode runtime has a 30-second service timeout and a 35-second agent/MCP timeout. While connecting it shows Cancel. A stale child left by a previous crash may require restarting the app.
 
-- current view, open sheet, palette
-- loaded snapshot and ready flag
-- policy bundle, policy project, loading and error state
-- overlay fallback flag
-- conversation transcript and pending reply flag (overlay webview only)
+## Skills and MCP
 
-Selection is a discriminated reference (`agent | project | task | memory`), so only one detail sheet is open at a time. Cross-view jumps (`openTask`) set the view and sheet in one action.
+The app does not reimplement skills or MCP. The OpenCode child process loads the same global and project configuration as the normal OpenCode session.
 
-Each webview has its own store instance. The overlay keeps its own transcript while hidden; the main window never shows chat. There is no persistence, so quitting the app resets both.
+- At the `CORE` project location, OpenCode reports `ponytail`, `caveman`, `impeccable`, and the HyperFrames skills as registered. Ponytail is also installed as a global plugin.
+- The generated agents allow `skill` actions by default; no agent denies them.
+- Every task prompt includes the global `AGENTS.md`, so the Caveman/Ponytail working style is binding even when a skill is not explicitly loaded.
+- MCP servers at the same location report connected: `jev`, `laya`, `n8n-mcp`, `playwright`, `rea`, `stitch`.
+- MCP tool actions use `allow` rules in generated agents, so OpenCode runs them without a prompt. Interactive chat, Plan, and Dreamer still auto-reply `once` to any other pending permission (up to 16 per turn); the orchestrator permission set still denies shell, edit, subagent, external-directory, and `.env` access. Task detail keeps the permission panel as a fallback for unexpected requests. The `browser` deny is for OpenCode's built-in browser action, separate from `<server>_<tool>` MCP actions.
+- Limitation: the scheduler does not preflight MCP health before starting a task. Check Settings > OpenCode runtime for current status. External MCP actions remain a trust boundary, and shell actions are still broader than MCP actions.
 
-## Navigation
+## Agent sync
 
-Seven views: Overview, Agents, Projects, Tasks, Activity, Memory, Settings. Details open as right-side sheets over the current view. `Ctrl+K` opens a palette that searches views, agents, projects, and tasks.
+`scripts/sync-agents.mjs` reads the source prompts in `prompts/agents/` and writes nine primary OpenCode agents to both the repo's `.opencode/agents/` and the global `%USERPROFILE%\.config\opencode\agent/`. Global installation makes the agents available in every project selected in the app:
 
-The orchestrator is a separate 720x420 frameless window, summoned with `Alt+\`` or the topbar button. It stays hidden between uses. The webview stays alive, so the transcript survives close and reopen for the session. Inside the overlay, the last exchange is shown by default; `Full thread` reveals the rest. Reference chips call the `open_record` command, which hides the overlay and opens the record in the main window.
+| App agent | OpenCode agent |
+|---|---|
+| Orchestrator | `orchestrator-workforce` |
+| Dreamer | `dreamer` |
+| Pixel | `pixel` |
+| Forge | `forge` |
+| Scout | `scout` |
+| Voice | `voice` |
+| Probe | `probe` |
+| Iris | `iris` |
+| Verity | `verity` |
 
-The main window has no chat dock. Its content uses the full width behind the 220 px sidebar.
+Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` validates the generated files. The source prompt remains the single editable source.
 
-## Orchestrator simulation
+## Scheduler rules
 
-`src/lib/orchestrator.ts` matches a prompt against keyword groups and builds a reply from the current snapshot: running work, blockers, Vault beta path, Dreamer memory, or the agent roster. The overlay waits 650 ms, then appends the reply and reference chips. Its visual language follows the LearnGraph daily tracker: black surface, 1 px border, square corners, monochrome text, green only for the simulated marker.
+- Maximum two running tasks.
+- One running task per owner.
+- Only `autoStart` tasks are started by the tick. Manual tasks use Run or Retry.
+- Dependencies must all be `done`.
+- A task is claimed in SQLite before the OpenCode session is created, so two ticks cannot start the same task.
+- The next dependent task starts after the previous task is accepted.
+- No worktrees yet. Coding tasks run in the project directory. Do not schedule overlapping file scopes until worktrees land.
 
-To connect a real orchestrator later:
+## Orchestrator UX
 
-1. Add a Tauri command or HTTP endpoint that accepts a prompt and returns a structured reply.
-2. Replace the `setTimeout` branch in `OrchestratorOverlay.svelte` with that call.
-3. Keep the simulation label until the endpoint is real, then replace it with connection state.
+The overlay has two modes:
 
-## Future integration path
+- **Chat**: real `workforce_send` in Tauri; scripted replies only in the browser preview. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
+- **Plan & run**: real `workforce_plan`; creates queued tasks and returns a summary. The scheduler starts ready tasks automatically.
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant UI as Svelte UI
-  participant R as Rust core
-  participant O as Orchestrator
-  participant B as Bots
-  participant DB as taskboard.db
-  U->>UI: prompt
-  UI->>R: invoke send_prompt
-  R->>O: session turn
-  O->>DB: create tasks
-  O->>B: launch specialists
-  B->>DB: status and messages
-  O-->>R: progress events
-  R-->>UI: stream updates
-```
+Reference chips open the linked task, agent, or project in the main window. The overlay does not expose model or API configuration.
 
-The existing task board uses `todo | running | done | blocked`. The app currently uses `queued | running | review | blocked | done`. A backend adapter must map states explicitly; see [[Bot-Workspace]].
+## Memory
+
+Dreamer reads project context, review/done task results, and existing memory. It returns JSON findings and proposals. Proposals are stored as pending. Approving applies `add`, `update`, `delete`, or `merge` to canonical memory; rejecting records the decision only. Task prompts include the latest eight approved entries for that project.
 
 ## Security posture
 
-- One local window pair, no remote URLs loaded.
-- No shell, filesystem, HTTP, or updater plugin installed. Global shortcut is the only plugin, registered from Rust.
-- No secrets, tokens, or credentials in the repository or fixtures.
-- CSP blocks remote scripts, images, and connections.
-- Agents and providers in the dataset are illustrative; no endpoint is contacted.
+- No secret is stored in the repository or fixture set.
+- The app never asks for provider keys and never reads provider configuration. It reads only the local OpenCode `service.json` IPC password for loopback API auth; that value never reaches the renderer.
+- Model calls happen only when the user sends, plans, runs a task, or starts Dreamer.
+- Shell permissions remain broad for task execution. Generated agents deny any command containing `Remove-Item`, plus `Remove-Item *`, `del *`, `rmdir *`, `rm -rf *`, destructive Git commands, `format`, shutdown, and restart. This is pattern matching, not a sandbox; a command outside the list can still run. Tighten the shell allowlist before using an untrusted project.
+- Agents cannot launch subagents.
+- `.env` files and external directories are denied by generated agent permissions.
+- The policy gate stops a run when the global or project `AGENTS.md` is missing.
+- MCP tools are auto-allowed by generated agents. This is a deliberate speed tradeoff: any MCP tool exposed to the agent can run without a prompt. Keep MCP servers scoped and review their tool catalogs. Chat, Plan, and Dreamer auto-approve any remaining pending request once, up to 16 per turn. Task detail retains the explicit Allow once, Always, or Deny fallback for non-MCP requests.
 
-## Limits
+## Current limits
 
-- Nothing is persisted; the app returns to the initial snapshot on reload.
-- The overlay transcript lives only while the app process runs.
-- No real streaming, retries, cancellation, or background work.
-- Chat replies are deterministic and limited to the scripted intents.
-- The icon set is generated from `app-icon.png`; store assets are placeholders beyond the app icon.
+- No SSE; message and task updates use HTTP polling.
+- No worktrees.
+- No manual task creation form; tasks come from the fixture seed, Plan, or task actions. Project creation/import exists.
+- One chat session per project; if OpenCode restarts, the next chat recreates it.
+- No pets habitat yet.
+- Manual live runtime smoke passed; no full Plan/task/Dreamer evaluation has been run.
+- No visual regression or DOM test harness.
 
-Related: [[Home]] · [[Data-Model]] · [[Design-System]] · [[Testing]] · [[Bot-Workspace]]
+Related: [[Home]] · [[Data-Model]] · [[Testing]] · [[Agent-Prompts]] · [[First-Draft]]

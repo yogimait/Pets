@@ -38,13 +38,14 @@
   let info = $state<RuntimeInfo | null>(null);
   let agents = $state<RuntimeAgent[]>([]);
   let models = $state<RuntimeModel[]>([]);
-  let mcp = $state<{ name: string; status: { status: string } }[]>([]);
+  let mcp = $state<{ name: string; status: { status: string; error?: string } }[]>([]);
   let session = $state<RuntimeSession | null>(null);
   let items = $state<RuntimeItem[]>([]);
   let permissions = $state<RuntimePermission[]>([]);
   let error = $state("");
   let busy = $state(false);
   let polling = false;
+  let connectToken = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   let project = $derived(app.snapshot?.projects.find((candidate) => candidate.id === projectId));
@@ -94,17 +95,40 @@
     timer = setInterval(refresh, 1200);
   }
 
+  function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error(`${label} did not respond within ${Math.round(ms / 1000)}s. Use Cancel, then Connect again.`)),
+        ms,
+      );
+      promise.then(
+        (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        (cause) => {
+          clearTimeout(timeout);
+          reject(cause);
+        },
+      );
+    });
+  }
+
   async function connect() {
     if (!canConnect) return;
+    const token = ++connectToken;
     busy = true;
     error = "";
     try {
-      info = await runtimeInfo(projectPath);
-      const [agentData, modelData, mcpData] = await Promise.all([
-        runtimeAgents(projectPath),
-        runtimeModels(projectPath),
-        runtimeMcp(projectPath),
-      ]);
+      const runtime = await withTimeout(runtimeInfo(projectPath), 30000, "OpenCode service");
+      if (token !== connectToken) return;
+      info = runtime;
+      const [agentData, modelData, mcpData] = await withTimeout(
+        Promise.all([runtimeAgents(projectPath), runtimeModels(projectPath), runtimeMcp(projectPath)]),
+        35000,
+        "OpenCode agent and MCP status",
+      );
+      if (token !== connectToken) return;
       agents = agentData;
       models = modelData;
       mcp = mcpData;
@@ -116,10 +140,12 @@
         if (fallback) modelValue = modelKey(fallback.providerID, fallback.modelID);
       }
     } catch (cause) {
-      error = String(cause);
-      info = null;
+      if (token === connectToken) {
+        error = String(cause);
+        info = null;
+      }
     } finally {
-      busy = false;
+      if (token === connectToken) busy = false;
     }
   }
 
@@ -197,6 +223,8 @@
   }
 
   async function disconnect() {
+    connectToken += 1;
+    busy = false;
     stopPolling();
     session = null;
     items = [];
@@ -262,13 +290,23 @@
         {/each}
       </select>
 
-      <button
-        onclick={connect}
-        disabled={!canConnect}
-        class="h-7 rounded-control border border-line-soft bg-surface px-2 text-[10.5px] text-ink-2 transition-colors hover:bg-hover hover:text-ink disabled:opacity-40"
-      >
-        {busy ? "Connecting" : info ? "Refresh" : "Connect"}
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button
+          onclick={connect}
+          disabled={!canConnect}
+          class="h-7 rounded-control border border-line-soft bg-surface px-2 text-[10.5px] text-ink-2 transition-colors hover:bg-hover hover:text-ink disabled:opacity-40"
+        >
+          {busy ? "Connecting" : info ? "Refresh" : "Connect"}
+        </button>
+        {#if busy}
+          <button
+            onclick={disconnect}
+            class="h-7 rounded-control border border-warn/35 px-2 text-[10.5px] text-warn transition-colors hover:bg-warn/10"
+          >
+            Cancel
+          </button>
+        {/if}
+      </div>
     </div>
 
     <p class="text-[10px] leading-relaxed text-ink-4">
@@ -287,8 +325,14 @@
         <span>{agents.length > 0 ? `${agents.length} custom agents` : "built-in agents only"}</span>
         <span>{modelOptions.length} tool-capable models</span>
         {#each mcp as server (server.name)}
-          <span class="flex items-center gap-1">
-            <span class="size-1.5 rounded-full {server.status.status === "connected" ? "bg-ok" : "bg-warn"}"></span>
+          <span
+            class="flex items-center gap-1"
+            title={`${server.name}: ${server.status.status}${server.status.error ? ` — ${server.status.error}` : ""}`}
+          >
+            <span
+              class="size-1.5 rounded-full {server.status.status === "connected" ? "bg-ok" : "bg-warn"}"
+              aria-hidden="true"
+            ></span>
             <span class="font-mono">{server.name}</span>
           </span>
         {/each}
@@ -318,7 +362,7 @@
             onclick={disconnect}
             class="rounded-control border border-line-soft px-2 py-1 text-[10px] text-ink-3 transition-colors hover:text-ink"
           >
-            Stop
+            Disconnect
           </button>
         </div>
       </div>
@@ -418,7 +462,7 @@
         </button>
       </div>
       <p class="text-[9.5px] text-ink-4">
-        Runs a real OpenCode session. Shell commands ask for approval. Session history is linked to this panel for now; task linking comes next.
+        Runs a real OpenCode session for manual testing. Shell commands ask for approval. Task-linked sessions run from the task board with the generated agent permissions.
       </p>
     {/if}
   </div>

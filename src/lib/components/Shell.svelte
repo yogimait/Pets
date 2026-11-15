@@ -4,6 +4,7 @@
   import Palette from "./Palette.svelte";
   import AgentDetail from "./AgentDetail.svelte";
   import ProjectDetail from "./ProjectDetail.svelte";
+  import ProjectForm from "./ProjectForm.svelte";
   import TaskDetail from "./TaskDetail.svelte";
   import MemoryDetail from "./MemoryDetail.svelte";
   import ProposalDetail from "./ProposalDetail.svelte";
@@ -76,6 +77,8 @@
   <AgentDetail id={app.sheet.id} />
 {:else if app.sheet?.kind === "project"}
   <ProjectDetail id={app.sheet.id} />
+{:else if app.sheet?.kind === "project-new"}
+  <ProjectForm />
 {:else if app.sheet?.kind === "task"}
   <TaskDetail id={app.sheet.id} />
 {:else if app.sheet?.kind === "memory"}
