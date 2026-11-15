@@ -106,6 +106,7 @@ export interface Task {
   permission?: TaskPermission | null;
   worktreePath?: string | null;
   worktreeBranch?: string | null;
+  requiredMcp?: string[];
 }
 
 export interface ActivityEvent {

@@ -9,7 +9,7 @@
 | `npm run check:agents` | Validate generated OpenCode agent files | 9 agents pass |
 | `npm run build` | Production renderer bundle | Passes, about 281 KB JS / 33 KB CSS |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust type check | Passes |
-| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 20 tests pass |
+| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 22 tests pass |
 | `npx tauri build --no-bundle` | Release application compile | Passes; `agent-bots.exe` built |
 | `npx tauri build --bundles nsis` | Windows installer | Passes; `Agent Bots_0.1.0_x64-setup.exe` (~3.46 MiB) |
 | `impeccable detect src --json` | Design detector | 0 findings |
@@ -246,7 +246,7 @@ Remove-Item -Recurse -Force D:\Projects\agent-bots-hardening-temp
 
 was denied with `Permission denied: shell`; the directory and `keep.txt` remained. `scripts/check-agents.mjs` now fails if the Remove-Item deny rule disappears.
 
-Residual risk: shell deny rules are pattern-based, not a sandbox. A command that does not match a listed pattern can still run.
+Shell hardening also denies `Invoke-Expression`, `iex`, and PowerShell encoded-command forms. Residual risk: shell deny rules are pattern-based, not a sandbox. A command that does not match a listed pattern can still run.
 
 ### Manual task form
 
@@ -257,6 +257,24 @@ Created a task from **Tasks → New task** with project `CORE`, owner Pixel, tit
 - `autoStart` was `false`
 - backend validation rejected empty title/description paths by construction
 - test task removed afterward
+
+### MCP health preflight
+
+Manual tasks can require MCP servers; task text also infers `playwright`, `n8n`, `stitch`, `rea`, `jev`, or `laya` by exact token.
+
+Before a worktree or session is created, the backend checks the required servers at the task location and waits up to 20 seconds for pending servers. Failed or still-pending servers block the task with a clear error.
+
+Unit coverage: required-MCP inference. The all-connected path was exercised live; a failed-server path was not forced because all six servers were connected.
+
+### Provider failure UX
+
+Provider errors containing `401`, `unauthorized`, `authentication`, `credential`, `api key`, or `not configured` now return:
+
+```text
+Provider credentials for … are missing or invalid. Configure the provider in OpenCode, then retry.
+```
+
+Other model-start failures remain the generic model error. Unit coverage exists; a live credential failure was not forced.
 
 ### Habitat
 
@@ -288,7 +306,7 @@ Created a temporary clean Git repo with `AGENTS.md` and `README.md`, added a tem
 - Accept fast-forwarded the base branch and removed the worktree registration/branch
 - task moved to done
 
-Not tested live: dirty-base rejection and merge conflicts. The worktree directory can remain empty briefly while OpenCode releases its cwd handle.
+Not tested live: dirty-base rejection and merge conflicts. Accept now uses `git merge --no-ff`; a conflict returns a clear error with the retained worktree path and branch, and the task stays in review for a retry. The worktree directory can remain empty briefly while OpenCode releases its cwd handle.
 
 ### Visual and keyboard
 

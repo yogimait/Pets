@@ -54,6 +54,14 @@ impl OpenCodeState {
         Ok(())
     }
 
+    pub(crate) async fn mcp_status(&self, project: &str) -> Result<Value, String> {
+        self.get_json(&format!(
+            "/api/mcp?location%5Bdirectory%5D={}",
+            url_encode(project)
+        ))
+        .await
+    }
+
     pub(crate) async fn get_json(&self, path: &str) -> Result<Value, String> {
         let target = self.target()?;
         let response = self
@@ -433,12 +441,7 @@ pub async fn runtime_mcp(
     project: String,
 ) -> Result<Value, String> {
     state.ensure(&project).await?;
-    state
-        .get_json(&format!(
-            "/api/mcp?location%5Bdirectory%5D={}",
-            url_encode(&project)
-        ))
-        .await
+    state.mcp_status(&project).await
 }
 
 #[tauri::command]

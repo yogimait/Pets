@@ -73,6 +73,18 @@ permissions:
   - action: "shell"
     resource: "Restart-Computer *"
     effect: deny
+  - action: "shell"
+    resource: "*Invoke-Expression*"
+    effect: deny
+  - action: "shell"
+    resource: "*iex *"
+    effect: deny
+  - action: "shell"
+    resource: "powershell -EncodedCommand*"
+    effect: deny
+  - action: "shell"
+    resource: "powershell -enc*"
+    effect: deny
   - action: "edit"
     resource: "*"
     effect: deny

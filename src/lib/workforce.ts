@@ -27,6 +27,7 @@ export interface TaskInput {
   priority: "low" | "normal" | "high" | "critical";
   acceptance: string;
   autoStart: boolean;
+  requiredMcp: string[];
 }
 
 export interface ProjectInput {
@@ -82,6 +83,7 @@ export function workforceCreateTask(input: TaskInput): Promise<Snapshot> {
     priority: input.priority,
     acceptance: input.acceptance,
     autoStart: input.autoStart,
+    requiredMcp: input.requiredMcp,
   });
 }
 

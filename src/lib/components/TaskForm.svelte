@@ -17,8 +17,18 @@
   let acceptance = $state("");
   let priority = $state<TaskPriority>("normal");
   let autoStart = $state(true);
+  let requiredMcp = $state<string[]>([]);
   let busy = $state(false);
   let error = $state("");
+
+  const mcpOptions = [
+    { id: "playwright", label: "Playwright" },
+    { id: "n8n-mcp", label: "n8n" },
+    { id: "stitch", label: "Stitch" },
+    { id: "rea", label: "REA" },
+    { id: "jev", label: "Jev" },
+    { id: "laya", label: "Laya" },
+  ];
 
   const inputClass =
     "h-8 w-full rounded-control border border-line-soft bg-canvas px-2.5 text-[11.5px] text-ink placeholder:text-ink-4 focus:border-accent/40 focus:outline-none";
@@ -39,6 +49,7 @@
         priority,
         acceptance: acceptance.trim(),
         autoStart,
+        requiredMcp,
       });
       if (saved) onclose();
       else if (app.workforceError) error = app.workforceError;
@@ -90,6 +101,19 @@
         placeholder="How the result is verified."
       ></textarea>
     </label>
+
+    <fieldset class="space-y-1.5">
+      <legend class="text-[9.5px] uppercase tracking-[0.1em] text-ink-4">Required MCP · optional</legend>
+      <div class="flex flex-wrap gap-x-3 gap-y-1.5">
+        {#each mcpOptions as option (option.id)}
+          <label class="flex items-center gap-1.5 text-[10.5px] text-ink-3">
+            <input bind:group={requiredMcp} value={option.id} type="checkbox" class="size-3.5 accent-[#8ca6c0]" />
+            {option.label}
+          </label>
+        {/each}
+      </div>
+      <p class="text-[9.5px] leading-relaxed text-ink-4">The task blocks before starting if a selected server is failed or still starting.</p>
+    </fieldset>
 
     <div class="flex items-center gap-2">
       <label class="flex items-center gap-2 text-[11px] text-ink-2">

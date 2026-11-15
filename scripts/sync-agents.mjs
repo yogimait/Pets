@@ -106,6 +106,10 @@ const destructiveShell = [
   ["shell", "shutdown *", "deny"],
   ["shell", "Stop-Computer *", "deny"],
   ["shell", "Restart-Computer *", "deny"],
+  ["shell", "*Invoke-Expression*", "deny"],
+  ["shell", "*iex *", "deny"],
+  ["shell", "powershell -EncodedCommand*", "deny"],
+  ["shell", "powershell -enc*", "deny"],
 ];
 
 const permissionSets = {

@@ -145,7 +145,7 @@ Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` v
 - Dependencies must all be `done`.
 - A task is claimed in SQLite before the OpenCode session is created, so two ticks cannot start the same task.
 - The next dependent task starts after the previous task is accepted.
-- Git projects run each task in an isolated worktree under the app data directory, branch `agent-bots/<task-id>`. The base repo must be clean; otherwise the task blocks instead of missing uncommitted work. Accept commits the worktree, fast-forwards the base branch, and removes the worktree/branch. Dirty or conflicting bases leave the task in review with an error. Non-git projects run in place.
+- Git projects run each task in an isolated worktree under the app data directory, branch `agent-bots/<task-id>`. The base repo must be clean; otherwise the task blocks instead of missing uncommitted work. Before creating the worktree/session, required MCP servers are checked at the task location, with a 20-second wait for pending servers. Accept commits the worktree, merges with `--no-ff`, and removes the worktree/branch. Dirty or conflicting bases leave the task in review with a clear retained-worktree error. Non-git projects run in place.
 
 ## Orchestrator UX
 

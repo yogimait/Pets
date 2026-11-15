@@ -18,6 +18,8 @@ const IDLE_TIMEOUT_SECS: u64 = 180;
 const RUNNING_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 const PROMPT_BUDGET: usize = 20_000;
 const MAX_AUTO_PERMISSIONS: usize = 16;
+const KNOWN_MCP: &[&str] = &["playwright", "n8n-mcp", "stitch", "rea", "jev", "laya"];
+const MCP_STARTUP_WAIT: Duration = Duration::from_secs(20);
 
 pub struct WorkforceStore {
     conn: Mutex<Connection>,
@@ -385,6 +387,7 @@ pub fn workforce_create_task(
     priority: Option<String>,
     acceptance: Option<String>,
     auto_start: Option<bool>,
+    required_mcp: Option<Vec<String>>,
 ) -> Result<Value, String> {
     let store = store.inner();
     let title = title.trim();
@@ -416,6 +419,15 @@ pub fn workforce_create_task(
         _ => "normal",
     };
     let acceptance = acceptance.unwrap_or_default().trim().to_string();
+    let mut required_mcp = required_mcp.unwrap_or_default();
+    required_mcp.retain(|name| !name.trim().is_empty());
+    for name in &required_mcp {
+        if !KNOWN_MCP.contains(&name.trim()) {
+            return Err(format!("Unknown MCP server: {name}"));
+        }
+    }
+    required_mcp.sort();
+    required_mcp.dedup();
     let at = now_ms();
     store.update(|value| {
         let existing_ids = value
@@ -453,7 +465,8 @@ pub fn workforce_create_task(
             "dependsOn": [],
             "autoStart": auto_start.unwrap_or(false),
             "sessionId": null,
-            "result": null
+            "result": null,
+            "requiredMcp": required_mcp
         });
         if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
             tasks.push(task.clone());
@@ -676,9 +689,7 @@ pub async fn workforce_send(
                 None,
             )
             .await
-            .map_err(|error| {
-                format!("Could not start model {provider_id}/{model_id}: {error}")
-            })?;
+            .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
             let session_id = session_id_of(&session)
                 .ok_or_else(|| "OpenCode did not return a session id.".to_string())?;
             store.remember_session(&project_id, &session_id);
@@ -688,7 +699,7 @@ pub async fn workforce_send(
 
     if let Err(error) = prompt_and_wait(runtime, &session_id, &prompt).await {
         store.forget_session(&project_id);
-        return Err(error);
+        return Err(provider_failure_message(&provider_id, &model_id, &error));
     }
     let messages = runtime
         .get_json(&format!(
@@ -1346,10 +1357,12 @@ async fn run_once(
         permissions,
     )
     .await
-    .map_err(|error| format!("Could not start model {provider_id}/{model_id}: {error}"))?;
+    .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
     let session_id = session_id_of(&session)
         .ok_or_else(|| "OpenCode did not return a session id.".to_string())?;
-    prompt_and_wait(runtime, &session_id, prompt).await?;
+    prompt_and_wait(runtime, &session_id, prompt)
+        .await
+        .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
     let messages = runtime
         .get_json(&format!(
             "/api/session/{session_id}/message?limit=200&order=asc"
@@ -1510,6 +1523,10 @@ async fn start_task(
         .map(|(path, _)| path.as_str())
         .unwrap_or(&repo)
         .to_string();
+    let required_mcp = required_mcp_for_task(&task);
+    if !required_mcp.is_empty() {
+        preflight_mcp(runtime, &work_dir, &required_mcp).await?;
+    }
     require_policy(&work_dir)?;
     let (provider_id, model_id) = model_config()?;
     let agent_id = opencode_agent_id(&snapshot, &owner);
@@ -1573,7 +1590,7 @@ async fn start_task(
     {
         Ok(session) => session,
         Err(error) => {
-            let note = format!("Could not start model {provider_id}/{model_id}: {error}");
+            let note = provider_failure_message(&provider_id, &model_id, &error);
             let _ = store.update(|value| {
                 mark_blocked(value, task_id, &note);
                 Ok(())
@@ -1605,7 +1622,7 @@ async fn start_task(
         )
         .await
     {
-        let note = format!("Session {session_id} failed to start: {error}");
+        let note = provider_failure_message(&provider_id, &model_id, &error);
         let _ = store.update(|value| {
             mark_blocked(value, task_id, &note);
             Ok(())
@@ -2126,6 +2143,124 @@ fn send_prompt(snapshot: &Value, project: &Value, text: &str) -> String {
     )
 }
 
+fn provider_failure_message(provider_id: &str, model_id: &str, error: &str) -> String {
+    let lower = error.to_ascii_lowercase();
+    let credential_failure = [
+        "401",
+        "unauthorized",
+        "authentication",
+        "credential",
+        "api key",
+        "api_key",
+        "not configured",
+        "missing key",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+    if credential_failure {
+        format!(
+            "Provider credentials for {provider_id}/{model_id} are missing or invalid. Configure the provider in OpenCode, then retry. Details: {error}"
+        )
+    } else {
+        format!("Could not start model {provider_id}/{model_id}: {error}")
+    }
+}
+
+fn required_mcp_for_task(task: &Value) -> Vec<String> {
+    let mut required = task
+        .get("requiredMcp")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|name| KNOWN_MCP.contains(name))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let text = format!(
+        "{} {} {}",
+        task.get("title").and_then(Value::as_str).unwrap_or(""),
+        task.get("description").and_then(Value::as_str).unwrap_or(""),
+        task.get("acceptance").and_then(Value::as_str).unwrap_or("")
+    )
+    .to_ascii_lowercase();
+    for token in text.split(|character: char| !character.is_ascii_alphanumeric() && character != '-') {
+        let server = match token {
+            "playwright" => Some("playwright"),
+            "n8n" => Some("n8n-mcp"),
+            "stitch" => Some("stitch"),
+            "rea" => Some("rea"),
+            "jev" => Some("jev"),
+            "laya" => Some("laya"),
+            _ => None,
+        };
+        if let Some(server) = server {
+            required.push(server.to_string());
+        }
+    }
+    required.sort();
+    required.dedup();
+    required
+}
+
+async fn preflight_mcp(
+    runtime: &OpenCodeState,
+    repo: &str,
+    required: &[String],
+) -> Result<(), String> {
+    if required.is_empty() {
+        return Ok(());
+    }
+    runtime.ensure(repo).await?;
+    let deadline = Instant::now() + MCP_STARTUP_WAIT;
+    loop {
+        let value = runtime.mcp_status(repo).await?;
+        let servers = unwrap_data(value);
+        let servers = servers.as_array().cloned().unwrap_or_default();
+        let mut waiting = false;
+        let mut failed = Vec::new();
+        for name in required {
+            let status = servers
+                .iter()
+                .find(|server| server.get("name").and_then(Value::as_str) == Some(name))
+                .and_then(|server| server.pointer("/status/status"))
+                .and_then(Value::as_str)
+                .unwrap_or("missing");
+            match status {
+                "connected" => {}
+                "failed" => {
+                    let error = servers
+                        .iter()
+                        .find(|server| server.get("name").and_then(Value::as_str) == Some(name))
+                        .and_then(|server| server.pointer("/status/error"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown error");
+                    failed.push(format!("{name}: {error}"));
+                }
+                _ => waiting = true,
+            }
+        }
+        if !failed.is_empty() {
+            return Err(format!(
+                "Required MCP unavailable: {}. Retry after the server connects.",
+                failed.join("; ")
+            ));
+        }
+        if !waiting {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "Required MCP still starting: {}.",
+                required.join(", ")
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
 fn task_prompt(snapshot: &Value, project: &Value, task: &Value, agent_id: &str) -> String {
     let repo = project.get("repoPath").and_then(Value::as_str).unwrap_or("");
     let global_policy = read_capped(&global_policy_path(), PROMPT_BUDGET);
@@ -2489,7 +2624,15 @@ fn merge_isolated_worktree(repo: &str, task: &Value) -> Result<Option<String>, S
         )?;
     }
 
-    git_output(repo, &["merge", "--ff-only", branch])?;
+    let merge_message = format!("agent-bots: merge {branch}");
+    if let Err(error) = git_output(
+        repo,
+        &["merge", "--no-ff", "-m", &merge_message, branch],
+    ) {
+        return Err(format!(
+            "Worktree merge failed. Resolve the conflict in {repo}, then retry Accept. Worktree retained at {path} on {branch}. {error}"
+        ));
+    }
     let _ = git_output(repo, &["worktree", "remove", "--force", path]);
     let _ = git_output(repo, &["branch", "-D", branch]);
     let _ = fs::remove_dir(path);
@@ -2842,6 +2985,25 @@ fn split_model(raw: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_failures_get_a_clear_hint() {
+        let message = provider_failure_message("opencode-go", "deepseek", "401 Unauthorized");
+        assert!(message.contains("credentials"));
+        assert!(message.contains("OpenCode"));
+        let generic = provider_failure_message("p", "m", "connection refused");
+        assert!(generic.contains("Could not start model p/m"));
+    }
+
+    #[test]
+    fn infers_required_mcp_from_task_text() {
+        let task = json!({
+            "title": "Open example.com with Playwright",
+            "description": "Use n8n only if needed.",
+            "acceptance": "No external reading."
+        });
+        assert_eq!(required_mcp_for_task(&task), vec!["n8n-mcp", "playwright"]);
+    }
 
     #[test]
     fn worktree_names_are_git_safe() {

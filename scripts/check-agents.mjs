@@ -52,6 +52,9 @@ for (const id of expected) {
   if (!/resource: "\*Remove-Item\*"\s*\n\s*effect: deny/.test(raw)) {
     failures.push(`${id}: destructive Remove-Item shell command must be denied`);
   }
+  if (!/resource: "\*Invoke-Expression\*"\s*\n\s*effect: deny/.test(raw)) {
+    failures.push(`${id}: Invoke-Expression shell command must be denied`);
+  }
   if (!raw.includes(JSON.stringify(devVaultDir))) {
     failures.push(`${id}: DevVault external directory must be allowed`);
   }
