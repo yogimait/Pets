@@ -17,7 +17,7 @@ flowchart TD
   UI[Views and sheets] --> Store[app.svelte.ts]
   Store --> Provider[data/provider.ts]
   Provider -->|Tauri| SnapshotCmds[Rust workforce commands]
-  Provider -->|browser| Fixtures[Typed fixtures]
+  Seed[Empty real workspace seed] --> Store[SQLite snapshot]
   Store --> Client[workforce.ts]
   Client --> SnapshotCmds
   SnapshotCmds --> DB[(SQLite state)]
@@ -25,15 +25,15 @@ flowchart TD
   Scheduler --> OC[OpenCode HTTP]
   OC --> Sessions[Specialist sessions]
   Overlay[Orchestrator overlay] --> Client
-  Overlay -->|browser| Scripted[Scripted fallback]
+  Overlay -->|browser| Preview[No backend]
 ```
 
-Views receive a `Snapshot` prop. They never import fixtures directly. `src/lib/data/provider.ts` is the only read seam. `src/lib/workforce.ts` is the only write client.
+Views receive a `Snapshot` prop. They never import fixture data directly. `src/lib/data/provider.ts` is the only read seam. `src/lib/workforce.ts` is the only write client. The browser preview is read-only and cannot start model work.
 
 ## State flow
 
 1. `init()` calls `loadSnapshot()`.
-2. In Tauri, `workforce_snapshot()` returns the SQLite snapshot. If empty, the renderer clones fixtures, calls `workforce_seed()`, and uses the stored result. Seeding normalizes fake running/review tasks to queued, disables seed auto-start, starts agents idle, and clears scripted chat, seed activity, and sample proposals/runs. A pre-runtime database without `schemaVersion: 3` is migrated on read; plan-created task ids are preserved, and v2 chat is kept while stale seed session ids are cleared.
+2. In Tauri, `workforce_snapshot()` returns the SQLite snapshot. If empty, the renderer seeds an empty real workspace: nine idle agents and the `core`/`lt` projects, with no tasks, activity, memory, proposals, Dreamer runs, artifacts, or chat. A pre-runtime database without `schemaVersion: 3` is migrated on read; plan-created task ids are preserved.
 3. Every mutating command returns the authoritative snapshot. `runWorkforceAction()` replaces `app.snapshot`; the current view and sheet stay open.
 4. The Rust core subscribes to OpenCode `/api/event` and emits `workforce-event` for session, message, and permission changes. Each app window debounces that event into `workforce_tick()` then `workforce_poll()`. A 15-second fallback sync covers the volatile/disconnected SSE stream; the per-page guard, run lock, and task claim prevent duplicate work.
 5. The overlay refreshes the snapshot on focus and after chat or plan actions.
@@ -43,7 +43,7 @@ Views receive a `Snapshot` prop. They never import fixtures directly. `src/lib/d
 | Command | Purpose |
 |---|---|
 | `workforce_snapshot` | Read the stored snapshot or null |
-| `workforce_seed` | Store the fixture snapshot once |
+| `workforce_seed` | Store the empty real workspace seed once |
 | `workforce_inspect_project` | Check a folder for existence, policy, README, and Git |
 | `workforce_create_project` | Add or import a project; optionally create folder, starter policy/README, and Git repo |
 | `workforce_create_task` | Create a manual queued task with owner, priority, acceptance, and optional auto-start |
@@ -151,18 +151,18 @@ Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` v
 
 The overlay has two modes:
 
-- **Chat**: real `workforce_send` in Tauri; scripted replies only in the browser preview. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
+- **Chat**: real `workforce_send` in Tauri; the browser preview cannot chat. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
 - **Plan & run**: real `workforce_plan`; creates queued tasks and returns a summary. The scheduler starts ready tasks automatically.
 
 Reference chips open the linked task, agent, or project in the main window. The overlay does not expose model or API configuration.
 
 ## Memory
 
-Dreamer reads project context, review/done task results, and existing memory. It returns JSON findings and proposals. Proposals are stored as pending. Approving applies `add`, `update`, `delete`, or `merge` to canonical memory; rejecting records the decision only. Task prompts include the latest eight approved entries for that project.
+Dreamer reads project context, review/done task results, existing memory, project `AGENTS.md`/`README.md`/`docs/*.md`, role prompts, and the project's DevVault hub note. It returns JSON findings and proposals. Proposals are stored as pending. Approving applies `add`, `update`, `delete`, or `merge` to canonical memory; rejecting records the decision only. Task prompts include the latest eight approved entries for that project.
 
 ## Security posture
 
-- No secret is stored in the repository or fixture set.
+- No secret is stored in the repository or seed data.
 - The app never asks for provider keys and never reads provider configuration. It reads only the local OpenCode `service.json` IPC password for loopback API auth; that value never reaches the renderer.
 - Model calls happen only when the user sends, plans, runs a task, or starts Dreamer.
 - Shell permissions remain broad for task execution. Generated agents deny any command containing `Remove-Item`, plus `Remove-Item *`, `del *`, `rmdir *`, `rm -rf *`, destructive Git commands, `format`, shutdown, and restart. This is pattern matching, not a sandbox; a command outside the list can still run. Tighten the shell allowlist before using an untrusted project.
@@ -177,9 +177,9 @@ Dreamer reads project context, review/done task results, and existing memory. It
 - Worktrees require a clean Git repo and a fast-forwardable base branch; merge conflicts remain manual.
 - Manual tasks are created from Tasks → New task; there is no task editing form.
 - One chat session per project; if OpenCode restarts, the next chat recreates it.
-- The habitat is a persistent desktop strip: status dots, hover detail, click-through to the agent sheet, and a draggable header. No independent pet simulation.
+- Pets are independent desktop windows. Each has a role-specific idle area and working area. Idle pets wander slowly around their area with pauses; active pets move faster around a central work area. Dragging a pet adopts its drop point as its idle anchor, so it stays where it was placed and then wanders from there.
 - The packaged installer is NSIS; bundled agents are installed into the global OpenCode agent directory on startup.
-- Manual live runtime smoke passed; no full Plan/task/Dreamer evaluation has been run.
+- Live Dreamer consolidation and a real Live Test task/review/accept pass. Full Plan-mode evaluation is still pending.
 - No visual regression or DOM test harness.
 
 Related: [[Home]] · [[Data-Model]] · [[Testing]] · [[Agent-Prompts]] · [[First-Draft]]

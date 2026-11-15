@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
   import { ArrowUp, X } from "@lucide/svelte";
   import { invoke, isTauri } from "@tauri-apps/api/core";
   import { app, closeOrchestrator, navigateTo, planWork, refreshWorkforce, sendOrchestrator } from "../state/app.svelte.ts";
-  import { SUGGESTIONS, respond } from "../orchestrator.ts";
+  import { SUGGESTIONS } from "../orchestrator.ts";
   import Markdown from "./Markdown.svelte";
   import { workforceAvailable } from "../workforce.ts";
   import { clockTime } from "../format.ts";
@@ -21,7 +21,6 @@
   let input = $state<HTMLTextAreaElement | null>(null);
   let body = $state<HTMLDivElement | null>(null);
   let lastMessage = $state<HTMLElement | null>(null);
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let sequence = 0;
 
   const live = workforceAvailable();
@@ -47,10 +46,6 @@
       window.removeEventListener("focus", focus);
       window.removeEventListener("resize", resizeComposer);
     };
-  });
-
-  onDestroy(() => {
-    if (timer) clearTimeout(timer);
   });
 
   $effect(() => {
@@ -104,18 +99,8 @@
     app.pending = true;
 
     if (!live) {
-      const snapshot = app.snapshot;
-      timer = setTimeout(() => {
-        const reply = respond(text, snapshot);
-        app.chat.push({
-          id: `chat-${Date.now()}-${sequence++}`,
-          role: "orchestrator",
-          text: reply.text,
-          at: Date.now(),
-          refs: reply.refs,
-        });
-        app.pending = false;
-      }, 650);
+      app.pending = false;
+      app.workforceError = "Chat requires the desktop app.";
       return;
     }
 

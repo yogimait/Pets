@@ -94,7 +94,7 @@ The prompt is sent to an OpenCode session owned by the mapped agent. The agent's
 - Agent sync and validation scripts.
 - Task routing by owner id.
 - Prompt preview in Agent detail.
-- 27 Node tests and 22 Rust tests.
+- 27 Node tests and 24 Rust tests.
 
 ## Pending
 

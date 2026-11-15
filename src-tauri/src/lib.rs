@@ -173,6 +173,9 @@ const PETS: &[(&str, &str)] = &[
 #[derive(Default)]
 struct PetBubbleState(Mutex<Option<String>>);
 
+#[derive(Default)]
+struct PetDragState(Mutex<Option<(String, u64)>>);
+
 fn pet_label(agent_id: &str) -> String {
     format!("pet-{agent_id}")
 }
@@ -207,6 +210,7 @@ fn create_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|error| format!("Could not create pet {agent_id}: {error}"))?;
         if let Some(window) = app.get_webview_window(&label) {
             let _ = window.set_always_on_top(true);
+            let _ = window.set_position(PhysicalPosition::new(x, y));
         }
     }
 
@@ -307,6 +311,30 @@ fn pet_bubble_agent(state: State<'_, PetBubbleState>) -> Option<String> {
 }
 
 #[tauri::command]
+fn pet_begin_drag(
+    app: tauri::AppHandle,
+    state: State<'_, PetDragState>,
+    agent_id: String,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window(&pet_label(&agent_id))
+        .ok_or_else(|| format!("Unknown pet: {agent_id}"))?;
+    if let Ok(mut dragging) = state.0.lock() {
+        *dragging = Some((agent_id, now_ms() + 15_000));
+    }
+    window
+        .start_dragging()
+        .map_err(|error| format!("Could not start pet drag: {error}"))
+}
+
+#[tauri::command]
+fn pet_end_drag(state: State<'_, PetDragState>) {
+    if let Ok(mut dragging) = state.0.lock() {
+        *dragging = None;
+    }
+}
+
+#[tauri::command]
 fn hide_pet_bubble(app: tauri::AppHandle, state: State<'_, PetBubbleState>) -> Result<(), String> {
     if let Ok(mut active) = state.0.lock() {
         *active = None;
@@ -338,6 +366,60 @@ fn open_record(app: tauri::AppHandle, kind: String, id: String) {
     open_record_impl(&app, &kind, &id);
 }
 
+fn pet_home(agent_id: &str) -> (f64, f64) {
+    match agent_id {
+        "orchestrator" => (0.50, 0.80),
+        "dreamer" => (0.14, 0.82),
+        "forge" => (0.86, 0.80),
+        "pixel" => (0.70, 0.76),
+        "scout" => (0.30, 0.78),
+        "voice" => (0.60, 0.84),
+        "probe" => (0.40, 0.74),
+        "iris" => (0.52, 0.88),
+        "verity" => (0.90, 0.84),
+        _ => (0.50, 0.80),
+    }
+}
+
+fn pet_work(agent_id: &str) -> (f64, f64) {
+    match agent_id {
+        "orchestrator" => (0.50, 0.58),
+        "dreamer" => (0.18, 0.62),
+        "forge" => (0.80, 0.58),
+        "pixel" => (0.64, 0.54),
+        "scout" => (0.26, 0.56),
+        "voice" => (0.56, 0.62),
+        "probe" => (0.40, 0.52),
+        "iris" => (0.48, 0.66),
+        "verity" => (0.84, 0.62),
+        _ => (0.50, 0.58),
+    }
+}
+
+fn pet_noise(seed: u64) -> f64 {
+    let mut value = seed.wrapping_add(0x9e3779b97f4a7c15);
+    value ^= value >> 30;
+    value = value.wrapping_mul(0xbf58476d1ce4e5b9);
+    value ^= value >> 27;
+    value = value.wrapping_mul(0x94d049bb133111eb);
+    value ^= value >> 31;
+    (value % 10_000) as f64 / 10_000.0
+}
+
+struct PetMotion {
+    label: String,
+    agent_id: String,
+    x: f64,
+    y: f64,
+    target_x: f64,
+    target_y: f64,
+    next_target: u64,
+    index: usize,
+    anchor_x: f64,
+    anchor_y: f64,
+    was_dragging: bool,
+}
+
 fn spawn_pet_motion(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let Ok(Some(monitor)) = app.primary_monitor() else {
@@ -347,52 +429,137 @@ fn spawn_pet_motion(app: tauri::AppHandle) {
         let area = monitor.size();
         let width = area.width as f64;
         let height = area.height as f64;
-        let mut pets: Vec<(String, f64, f64, f64, f64)> = PETS
+        let mut pets: Vec<PetMotion> = PETS
             .iter()
             .enumerate()
             .map(|(index, (agent_id, _))| {
-                let x = 24.0 + index as f64 * 76.0;
-                let y = height - 110.0;
-                (
-                    pet_label(agent_id),
-                    x,
-                    y,
-                    if index % 2 == 0 { 0.9 } else { -0.8 },
-                    if index % 3 == 0 { 0.25 } else { -0.2 },
-                )
+                let (home_x, home_y) = pet_home(agent_id);
+                let anchor_x = home_x * (width - 56.0).max(0.0);
+                let anchor_y = home_y * (height - 80.0).max(0.0);
+                PetMotion {
+                    label: pet_label(agent_id),
+                    agent_id: agent_id.to_string(),
+                    x: anchor_x,
+                    y: anchor_y,
+                    target_x: anchor_x,
+                    target_y: anchor_y,
+                    next_target: 0,
+                    index,
+                    anchor_x,
+                    anchor_y,
+                    was_dragging: false,
+                }
             })
             .collect();
         let mut tick: u64 = 0;
         loop {
             tokio::time::sleep(Duration::from_millis(90)).await;
             tick = tick.wrapping_add(1);
-            let active = app
+            let snapshot = app
+                .state::<workforce::WorkforceStore>()
+                .snapshot()
+                .ok()
+                .flatten();
+            let dragging = app
+                .state::<PetDragState>()
+                .0
+                .lock()
+                .ok()
+                .and_then(|value| value.clone());
+            let bubble = app
                 .state::<PetBubbleState>()
                 .0
                 .lock()
                 .ok()
                 .and_then(|value| value.clone());
-            for (label, x, y, dx, dy) in &mut pets {
-                if active.as_deref().is_some_and(|active| label == &format!("pet-{active}")) {
+            for pet in &mut pets {
+                let now = now_ms();
+                let is_dragging = dragging
+                    .as_ref()
+                    .is_some_and(|(id, until)| id == &pet.agent_id && now < *until);
+                if is_dragging {
+                    if let Some(position) = app
+                        .get_webview_window(&pet.label)
+                        .and_then(|window| window.outer_position().ok())
+                    {
+                        pet.x = (position.x - origin.x) as f64;
+                        pet.y = (position.y - origin.y) as f64;
+                    }
+                    pet.was_dragging = true;
                     continue;
                 }
-                *x += *dx;
-                *y += *dy;
-                if *x <= 0.0 || *x >= width - 56.0 {
-                    *dx = -*dx;
-                    *x = x.clamp(0.0, (width - 56.0).max(0.0));
+                if pet.was_dragging {
+                    if let Some(position) = app
+                        .get_webview_window(&pet.label)
+                        .and_then(|window| window.outer_position().ok())
+                    {
+                        pet.x = (position.x - origin.x) as f64;
+                        pet.y = (position.y - origin.y) as f64;
+                    }
+                    pet.was_dragging = false;
+                    pet.anchor_x = pet.x;
+                    pet.anchor_y = pet.y;
+                    pet.target_x = pet.x;
+                    pet.target_y = pet.y;
+                    pet.next_target = tick + 30;
                 }
-                if *y <= 0.0 || *y >= height - 80.0 {
-                    *dy = -*dy;
-                    *y = y.clamp(0.0, (height - 80.0).max(0.0));
+                if bubble.as_deref() == Some(pet.agent_id.as_str()) {
+                    continue;
                 }
-                if tick % (90 + (label.len() as u64 * 17)) == 0 {
-                    *dy = -*dy;
+
+                let working = snapshot
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.get("agents").and_then(|agents| agents.as_array()))
+                    .and_then(|agents| {
+                        agents.iter().find(|agent| {
+                            agent.get("id").and_then(|id| id.as_str()) == Some(pet.agent_id.as_str())
+                        })
+                    })
+                    .map(|agent| {
+                        agent.get("status").and_then(|status| status.as_str()) == Some("active")
+                            || agent.get("currentTaskId").map(|id| !id.is_null()).unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                let (base_x, base_y) = if working {
+                    let (work_x, work_y) = pet_work(&pet.agent_id);
+                    (
+                        work_x * (width - 56.0).max(0.0),
+                        work_y * (height - 80.0).max(0.0),
+                    )
+                } else {
+                    (pet.anchor_x, pet.anchor_y)
+                };
+                if tick >= pet.next_target
+                    || (pet.x - pet.target_x).abs() < 2.0
+                        && (pet.y - pet.target_y).abs() < 2.0
+                {
+                    let spread = if working { 180.0 } else { 60.0 };
+                    pet.target_x = (base_x
+                        + (pet_noise(tick + pet.index as u64 * 97) - 0.5) * spread)
+                        .clamp(0.0, (width - 56.0).max(0.0));
+                    pet.target_y = (base_y
+                        + (pet_noise(tick + pet.index as u64 * 193) - 0.5) * 60.0)
+                        .clamp(0.0, (height - 80.0).max(0.0));
+                    pet.next_target = tick + if working { 18 } else { 52 };
                 }
-                if let Some(window) = app.get_webview_window(label) {
+                if !working && (tick + pet.index as u64 * 11) % 70 < 8 {
+                    continue;
+                }
+                let dx = pet.target_x - pet.x;
+                let dy = pet.target_y - pet.y;
+                let distance = (dx * dx + dy * dy).sqrt();
+                let pace = 1.0 + (pet.index % 3) as f64 * 0.12;
+                let speed = if working { 3.0 * pace } else { 1.3 * pace };
+                if distance > 0.5 {
+                    pet.x += dx / distance * speed;
+                    pet.y += dy / distance * speed;
+                }
+                pet.x = pet.x.clamp(0.0, (width - 56.0).max(0.0));
+                pet.y = pet.y.clamp(0.0, (height - 80.0).max(0.0));
+                if let Some(window) = app.get_webview_window(&pet.label) {
                     let _ = window.set_position(PhysicalPosition::new(
-                        origin.x + *x as i32,
-                        origin.y + *y as i32,
+                        origin.x + pet.x as i32,
+                        origin.y + pet.y as i32,
                     ));
                 }
             }
@@ -416,6 +583,7 @@ pub fn run() {
                 })?;
             app.manage(store);
             app.manage(PetBubbleState::default());
+            app.manage(PetDragState::default());
             if let Err(error) = install_bundled_agents() {
                 eprintln!("bundled agent install failed: {error}");
             }
@@ -448,6 +616,8 @@ pub fn run() {
             show_pet_bubble,
             pet_bubble_agent,
             hide_pet_bubble,
+            pet_begin_drag,
+            pet_end_drag,
             open_record,
             read_policy,
             opencode::runtime_info,
@@ -479,4 +649,21 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod pet_tests {
+    use super::*;
+
+    #[test]
+    fn pet_zones_vary_by_agent_and_mode() {
+        let mut homes = Vec::new();
+        for (agent_id, _) in PETS {
+            homes.push(pet_home(agent_id));
+            assert_ne!(pet_home(agent_id), pet_work(agent_id));
+        }
+        homes.sort_by(|left, right| left.partial_cmp(right).unwrap());
+        homes.dedup();
+        assert_eq!(homes.len(), PETS.len());
+    }
 }

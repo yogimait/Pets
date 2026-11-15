@@ -39,7 +39,7 @@
   let averageConfidence = $derived(
     snapshot.memory.reduce((total, entry) => total + entry.confidence, 0) / Math.max(snapshot.memory.length, 1),
   );
-  let lastWrite = $derived(Math.max(...snapshot.memory.map((entry) => entry.updatedAt)));
+  let lastWrite = $derived(snapshot.memory.length > 0 ? Math.max(...snapshot.memory.map((entry) => entry.updatedAt)) : null);
   let pending = $derived(pendingProposals(snapshot));
   let proposals = $derived(
     [...snapshot.proposals].sort((a, b) => {
@@ -104,7 +104,7 @@
       </div>
       <div>
         <p class="text-[9.5px] uppercase tracking-[0.1em] text-ink-4">Last write</p>
-        <p class="mt-1 text-[12px] text-ink">{timeAgo(lastWrite)}</p>
+        <p class="mt-1 text-[12px] text-ink">{lastWrite ? timeAgo(lastWrite) : "none"}</p>
       </div>
     </div>
     <p class="mt-3 border-t border-line-soft pt-2.5 text-[10.5px] leading-relaxed text-ink-4">

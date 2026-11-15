@@ -6,8 +6,7 @@
   import { workforceAvailable } from "../workforce.ts";
 
   const live = workforceAvailable();
-  let hasSession = $derived(app.snapshot ? app.snapshot.tasks.some((task) => !!task.sessionId) : false);
-  let dataLabel = $derived(live ? (hasSession ? "Local data" : "Local seed") : "Demo data");
+  let dataLabel = $derived(live ? "Local data" : "Browser preview");
 
   let metrics = $derived(app.snapshot ? buildMetrics(app.snapshot) : null);
   let subtitle = $derived(
@@ -29,12 +28,10 @@
     <span
       class="hidden items-center gap-1.5 rounded border border-line-soft bg-surface px-2 py-1 text-[10px] text-ink-3 sm:inline-flex"
       title={live
-        ? hasSession
-          ? "Workforce data lives in local SQLite and at least one task is linked to a real OpenCode session."
-          : "The local database was seeded from fixtures. Run or plan work to create real session state."
-        : "Workforce data is mock. The OpenCode runtime panel in Settings can start real local sessions."}
+        ? "Workforce data lives in local SQLite."
+        : "Browser preview is read-only; open the desktop app for real data."}
     >
-      <span class="size-1 rounded-full {live && hasSession ? 'bg-ok' : 'bg-warn'}" aria-hidden="true"></span>
+      <span class="size-1 rounded-full {live ? 'bg-ok' : 'bg-warn'}" aria-hidden="true"></span>
       {dataLabel}
     </span>
 
@@ -50,7 +47,7 @@
 
     <button
       onclick={openPets}
-      title="Open habitat"
+      title="Show desktop pets"
       class="hidden items-center gap-1.5 rounded-control border border-line-soft bg-surface px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink md:flex"
     >
       <PawPrint size={12} strokeWidth={1.7} />

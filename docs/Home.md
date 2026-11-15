@@ -63,8 +63,8 @@ See [[First-Draft]] for the operator walkthrough.
 - SSE event updates with a 15-second polling fallback; no replay after disconnects.
 - Git tasks use isolated worktrees; accept fast-forwards the base branch.
 - Manual tasks are created from Tasks → New task.
-- Pets: nine free-moving 56x80 desktop sprites with a shared comic speech bubble.
-- Manual live model smoke passed; full Plan/task/Dreamer evaluation still pending.
+- Pets: nine draggable, free-moving 56x80 desktop sprites with role-specific idle/work movement and a shared comic speech bubble.
+- Live model smoke, Plan/task/Dreamer flows, and memory injection passed.
 - One chat session per project.
 
 Related: [[Architecture]] · [[Data-Model]] · [[Testing]]

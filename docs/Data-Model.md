@@ -121,11 +121,11 @@ Enforced by `tests/data.test.ts` and `src-tauri/src/workforce.rs` tests:
 
 ## Seed behavior
 
-The Rust store starts empty. The renderer seeds it from the fixture snapshot on first launch. This preserves a coherent demo workspace without duplicating 30 tasks in Rust.
+The Rust store starts empty. The renderer seeds an empty real workspace on first launch: nine idle agents and the `core`/`lt` projects, with no tasks, activity, memory, proposals, Dreamer runs, artifacts, or chat.
 
-- Fixtures remain in `src/lib/data/`.
-- Browser-only preview uses fixtures directly.
-- Desktop first launch writes a normalized copy to SQLite: all seed tasks get `autoStart: false`, fixture `running` and `review` tasks become `queued`, fake session ids and results are cleared, active agents start idle, and the scripted chat, seed activity, and sample proposals/runs are cleared. This prevents the UI or scheduler from starting a model session before the user asks.
+- Fixture files remain only for unit tests; the app does not seed or render them.
+- The browser preview is read-only and uses the same empty seed.
+- Desktop first launch writes the seed to SQLite; no model can start until the user creates or plans work.
 - Later changes are stored in SQLite and survive restart.
 
 ### Pre-runtime migration

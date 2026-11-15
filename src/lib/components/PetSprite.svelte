@@ -6,6 +6,9 @@
 
   let agentId = $state("");
   let pet = $derived(petForAgent(agentId));
+  let pressed = false;
+  let dragged = false;
+  let origin = { x: 0, y: 0 };
 
   onMount(() => {
     const label = getCurrentWindow().label;
@@ -29,6 +32,34 @@
   function hideBubble() {
     void invoke("hide_pet_bubble");
   }
+
+  function pointerDown(event: PointerEvent) {
+    if (event.button !== 0 || !agentId) return;
+    pressed = true;
+    dragged = false;
+    origin = { x: event.clientX, y: event.clientY };
+  }
+
+  function pointerMove(event: PointerEvent) {
+    if (!pressed || dragged) return;
+    if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) < 4) return;
+    pressed = false;
+    dragged = true;
+    hideBubble();
+    void invoke("pet_begin_drag", { agentId });
+  }
+
+  function pointerUp() {
+    if (pressed) showBubble();
+    pressed = false;
+    void invoke("pet_end_drag");
+  }
+
+  function pointerCancel() {
+    pressed = false;
+    dragged = false;
+    void invoke("pet_end_drag");
+  }
 </script>
 
 {#if pet}
@@ -36,9 +67,13 @@
     type="button"
     onmouseenter={showBubble}
     onmouseleave={hideBubble}
-    onclick={showBubble}
+    onpointerdown={pointerDown}
+    onpointermove={pointerMove}
+    onpointerup={pointerUp}
+    onpointercancel={pointerCancel}
+    oncontextmenu={(event) => event.preventDefault()}
     aria-label={`Talk to ${pet.name}`}
-    class="grid h-screen w-screen place-items-end bg-transparent p-0"
+    class="grid h-screen w-screen cursor-grab touch-none place-items-end bg-transparent p-0 active:cursor-grabbing"
   >
     <img
       class="pet-sprite block h-[80px] w-[56px] select-none object-contain [image-rendering:pixelated]"

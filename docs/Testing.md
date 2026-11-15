@@ -9,7 +9,7 @@
 | `npm run check:agents` | Validate generated OpenCode agent files | 9 agents pass |
 | `npm run build` | Production renderer bundle | Passes, about 281 KB JS / 33 KB CSS |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust type check | Passes |
-| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 22 tests pass |
+| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 24 tests pass |
 | `npx tauri build --no-bundle` | Release application compile | Passes; `agent-bots.exe` built |
 | `npx tauri build --bundles nsis` | Windows installer | Passes; `Agent Bots_0.1.0_x64-setup.exe` (~3.46 MiB) |
 | `impeccable detect src --json` | Design detector | 0 findings |
@@ -211,6 +211,16 @@ OpenCode may not emit every declared event type. If `session.idle` is missing, t
 
 SSE reconnect under long active turns and event loss across disconnects are not load-tested.
 
+### Real empty workspace and Dreamer context
+
+- current database reset to real data: two projects (`core`, `lt`), nine idle agents, zero tasks, zero memory, zero chat
+- demo projects Vault, Field Notes, and Launch Page removed
+- browser preview is read-only and no longer scripted
+- fixtures remain only for unit tests
+- Dreamer run on `core` read the project markdown and DevVault hub and produced 7 pending proposals
+- one real proposal was approved; memory count is 1, last write shown correctly
+- the existing Memory page no longer renders `Invalid Date` with an empty ledger
+
 ### DevVault maintenance access
 
 Verified that a task prompt contains:
@@ -276,12 +286,16 @@ Provider credentials for … are missing or invalid. Configure the provider in O
 
 Other model-start failures remain the generic model error. Unit coverage exists; a live credential failure was not forced.
 
-### Habitat
+### Desktop pets
 
-Opened the Pets strip from the main topbar.
+Opened the pets from the main topbar.
 
 - nine transparent 56x80 pet windows with named pixel sprites
-- free movement across the monitor, no visible frame or box
+- no visible frame or box
+- each agent has a distinct idle area and working area
+- idle pets wander slowly with pauses; active pets move faster around the work area
+- drag Micheal from the lower desktop to an upper position: the window followed the pointer, stayed at the drop point, then wandered around that new anchor
+- started a real Live Test task owned by Scout: Ryan moved from his idle area to the work area while the task was active, returned after review, and the task was accepted as done
 - hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
 - the main app does not open from a pet
 - bubble hides when the pointer leaves the pet, after 4 seconds, or via close
@@ -359,7 +373,7 @@ The runtime panel shows a yellow dot for failed or pending MCP servers; hover th
 | Area | Test | Pass condition |
 |---|---|---|
 | Onboarding | Create a project in an existing folder, a mid-project folder, and a brand-new folder | Folder path validates; starter files are only created when missing; project appears in selector |
-| Smoke | Launch desktop app with a fresh data directory | Fixture snapshot seeds SQLite once; all seven views render |
+| Smoke | Launch desktop app with a fresh data directory | Empty real workspace seed writes SQLite once; all seven views render |
 | Orchestrator chat | Send a short prompt to `core` | Reply is stored in chat and survives restart |
 | Plan | Plan one small task | JSON parses; one queued task appears; no duplicate plan tasks |
 | Execution | Run a read-only task | Task moves queued -> running -> review; session id stored |
@@ -386,8 +400,8 @@ Do not run the live matrix with provider keys until the user explicitly approves
 - Task detail shows acceptance, dependencies, session id, and result.
 - Running tasks can be aborted; review tasks can be accepted; blocked tasks can be retried.
 - Dreamer button runs for the selected project; approval changes memory.
-- Topbar says `Local data` in Tauri and `Demo data` in the browser.
-- Settings says local SQLite and does not claim mock state in Tauri.
+- Topbar says `Local data` in Tauri and `Browser preview` in the browser.
+- Settings says local SQLite in Tauri and read-only preview in the browser.
 - No secrets appear in the UI, logs, or generated agents.
 
 Related: [[Home]] · [[Architecture]] · [[Data-Model]] · [[First-Draft]]

@@ -12,7 +12,6 @@
   let { snapshot }: { snapshot: Snapshot } = $props();
 
   const live = workforceAvailable();
-  let hasSession = $derived(snapshot.tasks.some((task) => !!task.sessionId));
 
   function changePolicyProject(event: Event) {
     const select = event.currentTarget as HTMLSelectElement;
@@ -37,25 +36,21 @@
     <p class="mt-1 text-[11.5px] text-ink-3">
       {live
         ? "Workforce state is stored locally. Models run only when you start a task or a session."
-        : "Workspace data is mock in this browser preview. The OpenCode runtime panel is live."}
+        : "Browser preview has no backend. Open the desktop app for real workspace data."}
     </p>
   </div>
 
-  <Panel title="Data source" subtitle={live ? (hasSession ? "Local SQLite" : "Local seed") : "Interface only"}>
-    <div
-      class="flex items-start gap-3 rounded-control border p-3 {live && !hasSession ? 'border-warn/25 bg-warn/5' : 'border-line-soft bg-raised'}"
-    >
-      <span class="mt-1.5 size-1.5 shrink-0 rounded-full {live && !hasSession ? 'bg-warn' : 'bg-ok'}" aria-hidden="true"></span>
+  <Panel title="Data source" subtitle={live ? "Local SQLite" : "Browser preview"}>
+    <div class="flex items-start gap-3 rounded-control border border-line-soft bg-raised p-3">
+      <span class="mt-1.5 size-1.5 shrink-0 rounded-full {live ? 'bg-ok' : 'bg-warn'}" aria-hidden="true"></span>
       <div>
         <p class="text-[11.5px] text-ink">
-          {live ? (hasSession ? "Local workspace database" : "Seeded local workspace") : "Local mock snapshot"}
+          {live ? "Local workspace database" : "Read-only browser preview"}
         </p>
         <p class="mt-1 text-[10.5px] leading-relaxed text-ink-3">
           {live
-            ? hasSession
-              ? "Agents, tasks, activity, memory, proposals, and the orchestrator thread live in a SQLite database in the app data directory. Every action returns the stored snapshot."
-              : "SQLite is seeded from the fixture workspace. Fake running and review tasks are converted to queued; its agents start idle. Run or plan work to create real session links."
-            : "Every agent, task, activity event, and memory entry on these screens comes from one typed fixture set. The OpenCode runtime panel below is separate and can start real model sessions."}
+            ? "Agents, projects, tasks, activity, memory, proposals, and the orchestrator thread live in a SQLite database in the app data directory. New workspaces start empty. Every action returns the stored snapshot."
+            : "No backend is attached. Open the desktop app to create projects, run agents, or change data."}
         </p>
       </div>
     </div>
@@ -68,7 +63,7 @@
         <span class="text-ink-4">Orchestrator</span> ·
         {live
           ? "the overlay sends the prompt to the local backend and shows the stored reply. Plan mode creates tasks."
-          : "the overlay is scripted. The OpenCode runtime panel starts real sessions separately."}
+          : "chat and Plan require the desktop app."}
       </li>
       <li>
         <span class="text-ink-4">Persistence</span> ·
@@ -80,7 +75,7 @@
         <span class="text-ink-4">Execution</span> ·
         {live
           ? "no model runs until you send, plan, or start a session. Idle time costs nothing."
-          : "agents and task data remain mock. A real session can be started below."}
+          : "the browser preview cannot start models."}
       </li>
     </ul>
   </Panel>

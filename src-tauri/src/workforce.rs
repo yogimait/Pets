@@ -2311,6 +2311,69 @@ fn task_prompt(snapshot: &Value, project: &Value, task: &Value, agent_id: &str) 
     )
 }
 
+fn markdown_context(repo: &str, budget: usize) -> String {
+    let root = Path::new(repo);
+    let mut files = Vec::new();
+    for name in ["AGENTS.md", "README.md"] {
+        let path = root.join(name);
+        if path.is_file() {
+            files.push(path);
+        }
+    }
+    let docs = root.join("docs");
+    if let Ok(entries) = fs::read_dir(&docs) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) == Some("md") {
+                files.push(path);
+            }
+        }
+    }
+    if let Ok(entries) = fs::read_dir(root.join(".opencode").join("agents")) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) == Some("md") {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files.dedup();
+    let mut output = String::new();
+    for path in files {
+        let remaining = budget.saturating_sub(output.len());
+        if remaining < 200 {
+            break;
+        }
+        let text = read_capped(&path, remaining.min(4_000));
+        if text.trim().is_empty() {
+            continue;
+        }
+        output.push_str(&format!(
+            "\n## {}\n\n{}\n",
+            path.strip_prefix(root).unwrap_or(&path).display(),
+            text.trim()
+        ));
+    }
+    output.trim().to_string()
+}
+
+fn devvault_project_context(project: &Value) -> String {
+    let project_name = project
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Project");
+    let hub = devvault_path()
+        .join("Projects")
+        .join(format!("{}.md", project_name.replace(' ', "-")));
+    let text = read_capped(&hub, 8_000);
+    if text.trim().is_empty() {
+        "(no DevVault hub note yet)".to_string()
+    } else {
+        format!("Hub note: {}\n\n{}", hub.display(), text.trim())
+    }
+}
+
 fn dreamer_prompt(snapshot: &Value, project: &Value) -> String {
     let project_id = project.get("id").and_then(Value::as_str).unwrap_or("");
     let mut tasks = Vec::new();
@@ -2338,9 +2401,17 @@ fn dreamer_prompt(snapshot: &Value, project: &Value) -> String {
         }
     }
     let memory = all_memory_context(snapshot, project_id, 40);
+    let repo = project
+        .get("repoPath")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let project_markdown = markdown_context(repo, 12_000);
+    let vault_context = devvault_project_context(project);
     format!(
-        "{}\n\nCompleted or review tasks:\n{}\n\nExisting memory:\n{}\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"findings\":[\"fact\"],\"proposals\":[{{\"action\":\"add\",\"scope\":\"project\",\"kind\":\"decision\",\"title\":\"short title\",\"content\":\"durable fact\",\"reason\":\"why it matters\",\"evidence\":[\"task id or file\"],\"confidence\":0.8,\"targetEntryId\":null}}]}}\n\nRules:\n- One proposal per durable fact.\n- Evidence is required.\n- Allowed kinds: decision, reference, doc, result, convention.\n- Allowed actions: add, update, delete, merge.\n- Never include secrets, credentials, or raw logs.\n- If nothing durable was found, return empty arrays.",
+        "{}\n\n# Project markdown\n\n{}\n\n# DevVault context\n\n{}\n\nCompleted or review tasks:\n{}\n\nExisting memory:\n{}\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"findings\":[\"fact\"],\"proposals\":[{{\"action\":\"add\",\"scope\":\"project\",\"kind\":\"decision\",\"title\":\"short title\",\"content\":\"durable fact\",\"reason\":\"why it matters\",\"evidence\":[\"task id or file\"],\"confidence\":0.8,\"targetEntryId\":null}}]}}\n\nRules:\n- One proposal per durable fact.\n- Evidence is required.\n- Allowed kinds: decision, reference, doc, result, convention.\n- Allowed actions: add, update, delete, merge.\n- Never include secrets, credentials, or raw logs.\n- Prefer evidence from the database and the supplied markdown context.\n- If something is missing, use read-only tools to inspect the repository or DevVault hub; do not invent context.\n- If nothing durable was found, return empty arrays.",
         project_context(project),
+        if project_markdown.is_empty() { "(none)".to_string() } else { project_markdown },
+        vault_context,
         if tasks.is_empty() { "(none)".to_string() } else { tasks.join("\n") },
         if memory.is_empty() { "(none)".to_string() } else { memory.join("\n") }
     )
@@ -2993,6 +3064,18 @@ mod tests {
         assert!(message.contains("OpenCode"));
         let generic = provider_failure_message("p", "m", "connection refused");
         assert!(generic.contains("Could not start model p/m"));
+    }
+
+    #[test]
+    fn markdown_context_reads_project_docs() {
+        let dir = std::env::temp_dir().join(format!("agent-bots-docs-{}", now_ms()));
+        std::fs::create_dir_all(dir.join("docs")).expect("docs dir");
+        std::fs::write(dir.join("README.md"), "# Root\n\nRoot content.").expect("readme");
+        std::fs::write(dir.join("docs").join("Architecture.md"), "# Arch\n\nArchitecture content.").expect("doc");
+        let context = markdown_context(&dir.display().to_string(), 10_000);
+        assert!(context.contains("Root content."));
+        assert!(context.contains("Architecture content."));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

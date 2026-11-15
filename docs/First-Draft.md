@@ -22,15 +22,15 @@ OpenCode skills and MCP servers are inherited from your OpenCode configuration. 
 npm run tauri dev
 ```
 
-Use the desktop build, not the browser preview, for real data. The browser keeps the fixture snapshot and scripted chat. Model credentials stay in OpenCode; the app never reads or stores provider keys.
+Use the desktop build, not the browser preview, for real data. The browser has no backend and cannot chat or run agents. Model credentials stay in OpenCode; the app never reads or stores provider keys.
 
-On first launch the app seeds `workforce.db` with the fixture workspace. Seed tasks get `autoStart: false`, fake running/review tasks become queued, agents start idle, and the scripted chat, seed activity, and sample proposals are cleared. No task and no model session starts until you explicitly run or plan work. Later launches read the stored snapshot. A pre-runtime database is migrated once: seed auto-start is disabled, fake sessions are cleared, and plan-created tasks are preserved. The database lives in the Tauri app data directory.
+On first launch the app creates `workforce.db` with an empty real workspace: nine idle agents and the `core`/`lt` projects. It has no tasks, activity, memory, proposals, Dreamer runs, artifacts, or chat. No model session starts until you create or plan work. Later launches read the stored snapshot. The database lives in the Tauri app data directory.
 
 ## 3. Open the orchestrator
 
 Press `Alt+\`` or click **Orchestrator**.
 
-- Select the project you created. `CORE` is this repository. The seeded `VLT`, `FLD`, and `LCH` projects are display-only and their paths may not exist.
+- Select the project you created. `CORE` is this repository; `LT` is the Live Test workspace.
 - **Chat** sends a real prompt to `orchestrator-workforce`.
 - **Plan & run** asks the orchestrator for a task plan. The reply is parsed as JSON and saved as queued tasks; the scheduler then starts up to two ready tasks.
 

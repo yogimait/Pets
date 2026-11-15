@@ -81,7 +81,7 @@
           <span class="truncate font-mono">OpenCode: {runtimeAgent(agent.id)}</span>
           <span class="shrink-0">{agent.successRate}% · {agent.tasksCompleted} done</span>
         </div>
-        <p class="mt-1 text-[9.5px] text-ink-4">last active {timeAgo(agent.lastActiveAt)}</p>
+        <p class="mt-1 text-[9.5px] text-ink-4">{agent.lastActiveAt ? `last active ${timeAgo(agent.lastActiveAt)}` : "no activity yet"}</p>
       </button>
     {/each}
   </div>

@@ -50,7 +50,7 @@
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
             <StatusBadge status={agent.status} />
-            <span class="text-[10px] text-ink-4">last active {timeAgo(agent.lastActiveAt)}</span>
+            <span class="text-[10px] text-ink-4">{agent.lastActiveAt ? `last active ${timeAgo(agent.lastActiveAt)}` : "no activity yet"}</span>
           </div>
           <p class="mt-2 text-[12px] leading-relaxed text-ink-2">{agent.description}</p>
         </div>
