@@ -280,12 +280,12 @@ Other model-start failures remain the generic model error. Unit coverage exists;
 
 Opened the Pets strip from the main topbar.
 
-- 480x151 Tauri window, visible at startup at bottom-right
-- seven specialist monograms and status dots
-- one habitat window, no per-pet windows
-- hover shows role/status in the footer
-- click opens the agent sheet and hides the strip
-- close button hides the strip; topbar Pets reopens it
+- nine transparent 56x80 pet windows with named pixel sprites
+- free movement across the monitor, no visible frame or box
+- hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
+- the main app does not open from a pet
+- bubble hides when the pointer leaves the pet, after 4 seconds, or via close
+- topbar Pets re-shows all pet windows
 
 ### Packaged agents and installer
 

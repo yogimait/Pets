@@ -4,10 +4,18 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./app.css";
 import App from "./App.svelte";
 import OrchestratorWindow from "./lib/components/OrchestratorWindow.svelte";
-import PetHabitat from "./lib/components/PetHabitat.svelte";
+import PetBubble from "./lib/components/PetBubble.svelte";
+import PetSprite from "./lib/components/PetSprite.svelte";
 
 const label = isTauri() ? getCurrentWindow().label : "main";
-const Root = label === "orchestrator" ? OrchestratorWindow : label === "pets" ? PetHabitat : App;
+const Root =
+  label === "orchestrator"
+    ? OrchestratorWindow
+    : label === "pet-bubble"
+      ? PetBubble
+      : label.startsWith("pet-")
+        ? PetSprite
+        : App;
 
 const app = mount(Root, { target: document.getElementById("app")! });
 

@@ -3,10 +3,12 @@ mod workforce;
 
 use opencode::OpenCodeState;
 use serde::Serialize;
+use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{Emitter, Manager, PhysicalPosition};
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[derive(Serialize)]
@@ -156,28 +158,81 @@ fn hide_orchestrator(app: tauri::AppHandle) {
     }
 }
 
-fn place_pets(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("pets") else {
-        return;
-    };
-    let Ok(Some(monitor)) = window.current_monitor() else {
-        return;
-    };
-    let Ok(size) = window.outer_size() else {
-        return;
-    };
-    let area = monitor.size();
+const PETS: &[(&str, &str)] = &[
+    ("orchestrator", "micheal"),
+    ("dreamer", "holly"),
+    ("forge", "dwight"),
+    ("pixel", "jim"),
+    ("scout", "ryan"),
+    ("voice", "andy"),
+    ("probe", "erin"),
+    ("iris", "pam"),
+    ("verity", "stanley"),
+];
+
+#[derive(Default)]
+struct PetBubbleState(Mutex<Option<String>>);
+
+fn pet_label(agent_id: &str) -> String {
+    format!("pet-{agent_id}")
+}
+
+fn create_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
+    let monitor = app
+        .primary_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "No monitor available for pets.".to_string())?;
     let origin = monitor.position();
-    let x = origin.x + area.width as i32 - size.width as i32 - 16;
-    let y = origin.y + area.height as i32 - size.height as i32 - 56;
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+    let area = monitor.size();
+    for (index, (agent_id, _)) in PETS.iter().enumerate() {
+        let label = pet_label(agent_id);
+        if app.get_webview_window(&label).is_some() {
+            continue;
+        }
+        let x = origin.x + 24 + (index as i32 * 76);
+        let y = origin.y + area.height as i32 - 110;
+        WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+            .title("")
+            .inner_size(56.0, 80.0)
+            .position(x as f64, y as f64)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .focused(false)
+            .visible(true)
+            .build()
+            .map_err(|error| format!("Could not create pet {agent_id}: {error}"))?;
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.set_always_on_top(true);
+        }
+    }
+
+    if app.get_webview_window("pet-bubble").is_none() {
+        WebviewWindowBuilder::new(app, "pet-bubble", WebviewUrl::App("index.html".into()))
+            .title("")
+            .inner_size(340.0, 180.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .focused(false)
+            .visible(false)
+            .build()
+            .map_err(|error| format!("Could not create pet bubble: {error}"))?;
+    }
+    Ok(())
 }
 
 fn show_pets(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("pets") {
-        place_pets(app);
-        let _ = window.show();
-        let _ = window.set_focus();
+    for (agent_id, _) in PETS {
+        if let Some(window) = app.get_webview_window(&pet_label(agent_id)) {
+            let _ = window.show();
+        }
     }
 }
 
@@ -186,15 +241,83 @@ fn open_pets(app: tauri::AppHandle) {
     show_pets(&app);
 }
 
-#[tauri::command]
-fn hide_pets(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("pets") {
-        let _ = window.hide();
+fn hide_all_pets(app: &tauri::AppHandle) {
+    for (agent_id, _) in PETS {
+        if let Some(window) = app.get_webview_window(&pet_label(agent_id)) {
+            let _ = window.hide();
+        }
+    }
+    if let Some(bubble) = app.get_webview_window("pet-bubble") {
+        let _ = bubble.hide();
     }
 }
 
 #[tauri::command]
-fn open_record(app: tauri::AppHandle, kind: String, id: String) {
+fn hide_pets(app: tauri::AppHandle, state: State<'_, PetBubbleState>) {
+    hide_all_pets(&app);
+    if let Ok(mut active) = state.0.lock() {
+        *active = None;
+    }
+}
+
+#[tauri::command]
+fn show_pet_bubble(
+    app: tauri::AppHandle,
+    state: State<'_, PetBubbleState>,
+    agent_id: String,
+) -> Result<(), String> {
+    let pet = app
+        .get_webview_window(&pet_label(&agent_id))
+        .ok_or_else(|| format!("Unknown pet: {agent_id}"))?;
+    let bubble = app
+        .get_webview_window("pet-bubble")
+        .ok_or_else(|| "Pet bubble is not available.".to_string())?;
+    let position = pet.outer_position().map_err(|error| error.to_string())?;
+    let pet_size = pet.outer_size().map_err(|error| error.to_string())?;
+    let bubble_size = bubble.outer_size().map_err(|error| error.to_string())?;
+    let monitor = pet
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "No monitor available for pet bubble.".to_string())?;
+    let area = monitor.size();
+    let origin = monitor.position();
+    let min_x = origin.x;
+    let min_y = origin.y;
+    let max_x = origin.x + area.width as i32 - bubble_size.width as i32 - 8;
+    let max_y = origin.y + area.height as i32 - bubble_size.height as i32 - 8;
+    let x = (position.x + pet_size.width as i32 / 2 - bubble_size.width as i32 / 2).clamp(min_x, max_x);
+    let mut y = position.y - bubble_size.height as i32 + 16;
+    if y < min_y {
+        y = position.y + pet_size.height as i32 - 16;
+    }
+    let y = y.clamp(min_y, max_y);
+    let _ = bubble.set_position(PhysicalPosition::new(x, y));
+    *state
+        .0
+        .lock()
+        .map_err(|_| "Pet bubble state lock poisoned.".to_string())? = Some(agent_id.clone());
+    let _ = app.emit("pet-bubble-show", json!({ "agentId": agent_id }));
+    let _ = bubble.show();
+    Ok(())
+}
+
+#[tauri::command]
+fn pet_bubble_agent(state: State<'_, PetBubbleState>) -> Option<String> {
+    state.0.lock().ok().and_then(|value| value.clone())
+}
+
+#[tauri::command]
+fn hide_pet_bubble(app: tauri::AppHandle, state: State<'_, PetBubbleState>) -> Result<(), String> {
+    if let Ok(mut active) = state.0.lock() {
+        *active = None;
+    }
+    if let Some(bubble) = app.get_webview_window("pet-bubble") {
+        let _ = bubble.hide();
+    }
+    Ok(())
+}
+
+fn open_record_impl(app: &tauri::AppHandle, kind: &str, id: &str) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.unminimize();
         let _ = main.show();
@@ -204,9 +327,77 @@ fn open_record(app: tauri::AppHandle, kind: String, id: String) {
     if let Some(overlay) = app.get_webview_window("orchestrator") {
         let _ = overlay.hide();
     }
-    if let Some(pets) = app.get_webview_window("pets") {
-        let _ = pets.hide();
+    hide_all_pets(app);
+    if let Ok(mut active) = app.state::<PetBubbleState>().0.lock() {
+        *active = None;
     }
+}
+
+#[tauri::command]
+fn open_record(app: tauri::AppHandle, kind: String, id: String) {
+    open_record_impl(&app, &kind, &id);
+}
+
+fn spawn_pet_motion(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let Ok(Some(monitor)) = app.primary_monitor() else {
+            return;
+        };
+        let origin = monitor.position();
+        let area = monitor.size();
+        let width = area.width as f64;
+        let height = area.height as f64;
+        let mut pets: Vec<(String, f64, f64, f64, f64)> = PETS
+            .iter()
+            .enumerate()
+            .map(|(index, (agent_id, _))| {
+                let x = 24.0 + index as f64 * 76.0;
+                let y = height - 110.0;
+                (
+                    pet_label(agent_id),
+                    x,
+                    y,
+                    if index % 2 == 0 { 0.9 } else { -0.8 },
+                    if index % 3 == 0 { 0.25 } else { -0.2 },
+                )
+            })
+            .collect();
+        let mut tick: u64 = 0;
+        loop {
+            tokio::time::sleep(Duration::from_millis(90)).await;
+            tick = tick.wrapping_add(1);
+            let active = app
+                .state::<PetBubbleState>()
+                .0
+                .lock()
+                .ok()
+                .and_then(|value| value.clone());
+            for (label, x, y, dx, dy) in &mut pets {
+                if active.as_deref().is_some_and(|active| label == &format!("pet-{active}")) {
+                    continue;
+                }
+                *x += *dx;
+                *y += *dy;
+                if *x <= 0.0 || *x >= width - 56.0 {
+                    *dx = -*dx;
+                    *x = x.clamp(0.0, (width - 56.0).max(0.0));
+                }
+                if *y <= 0.0 || *y >= height - 80.0 {
+                    *dy = -*dy;
+                    *y = y.clamp(0.0, (height - 80.0).max(0.0));
+                }
+                if tick % (90 + (label.len() as u64 * 17)) == 0 {
+                    *dy = -*dy;
+                }
+                if let Some(window) = app.get_webview_window(label) {
+                    let _ = window.set_position(PhysicalPosition::new(
+                        origin.x + *x as i32,
+                        origin.y + *y as i32,
+                    ));
+                }
+            }
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -224,6 +415,7 @@ pub fn run() {
                     Box::new(std::io::Error::other(error))
                 })?;
             app.manage(store);
+            app.manage(PetBubbleState::default());
             if let Err(error) = install_bundled_agents() {
                 eprintln!("bundled agent install failed: {error}");
             }
@@ -237,7 +429,11 @@ pub fn run() {
                 eprintln!("global shortcut registration failed: {error}");
             }
 
-            place_pets(app.handle());
+            if let Err(error) = create_pet_windows(app.handle()) {
+                eprintln!("pet window creation failed: {error}");
+            } else {
+                spawn_pet_motion(app.handle().clone());
+            }
             let event_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 opencode::run_event_listener(event_app).await;
@@ -249,6 +445,9 @@ pub fn run() {
             hide_orchestrator,
             open_pets,
             hide_pets,
+            show_pet_bubble,
+            pet_bubble_agent,
+            hide_pet_bubble,
             open_record,
             read_policy,
             opencode::runtime_info,

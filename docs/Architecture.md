@@ -4,7 +4,7 @@ Agent Bots is a local-first desktop control plane. The Svelte renderer owns pres
 
 ## Runtime
 
-- Tauri 2 shell with three windows: main 1360x820 (1080x720 floor), a 920x680 resizable frameless orchestrator overlay (640x480 floor) opened with `Alt+\``, and a 480x150 always-on-top habitat strip.
+- Tauri 2 shell with main 1360x820 (1080x720 floor), a 920x680 resizable frameless orchestrator overlay (640x480 floor) opened with `Alt+\``, nine transparent 56x80 desktop pet windows, and one shared 340x180 speech-bubble window.
 - Svelte 5 renderer with runes, TypeScript strict, Vite 8, Tailwind CSS 4.
 - SQLite database at `app_data_dir/workforce.db`. One `state` row stores the full snapshot as JSON. This is deliberate for the first draft; normalized tables come later.
 - The app attaches to the existing OpenCode background service instead of spawning a private `serve` child. It discovers the URL with `opencode service status` and reads the local IPC password from `~/.config/opencode/service.json`. The service stays alive when the app exits.

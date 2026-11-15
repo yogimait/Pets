@@ -63,7 +63,7 @@ See [[First-Draft]] for the operator walkthrough.
 - SSE event updates with a 15-second polling fallback; no replay after disconnects.
 - Git tasks use isolated worktrees; accept fast-forwards the base branch.
 - Manual tasks are created from Tasks → New task.
-- Habitat: one 480x150 desktop strip, shown at startup, with hover detail and click-through.
+- Pets: nine free-moving 56x80 desktop sprites with a shared comic speech bubble.
 - Manual live model smoke passed; full Plan/task/Dreamer evaluation still pending.
 - One chat session per project.
 
