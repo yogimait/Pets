@@ -38,6 +38,7 @@ export const app = $state({
   snapshot: null as Snapshot | null,
   paletteOpen: false,
   overlayOpen: false,
+  petsVisible: true,
   sheet: null as SheetRef | null,
   chat: [] as ChatMessage[],
   pending: false,
@@ -299,9 +300,24 @@ export async function openPets(): Promise<void> {
   if (!isTauri()) return;
   try {
     await invoke("open_pets");
+    app.petsVisible = true;
   } catch (error) {
-    console.warn("pet habitat unavailable", error);
+    console.warn("pet windows unavailable", error);
   }
+}
+
+export async function hidePets(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke("hide_pets");
+    app.petsVisible = false;
+  } catch (error) {
+    console.warn("pet windows unavailable", error);
+  }
+}
+
+export function togglePets(): void {
+  void (app.petsVisible ? hidePets() : openPets());
 }
 
 export async function closeOrchestrator(): Promise<void> {

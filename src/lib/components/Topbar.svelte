@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Command, MessageSquare, PawPrint } from "@lucide/svelte";
-  import { app, openOrchestrator, openPets } from "../state/app.svelte.ts";
+  import { app, openOrchestrator, togglePets } from "../state/app.svelte.ts";
   import { VIEW_TITLES } from "../nav.ts";
   import { buildMetrics } from "../selectors.ts";
   import { workforceAvailable } from "../workforce.ts";
@@ -46,12 +46,13 @@
     </button>
 
     <button
-      onclick={openPets}
-      title="Show desktop pets"
+      onclick={togglePets}
+      title={app.petsVisible ? "Hide desktop pets" : "Show desktop pets"}
+      aria-pressed={app.petsVisible}
       class="hidden items-center gap-1.5 rounded-control border border-line-soft bg-surface px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink md:flex"
     >
       <PawPrint size={12} strokeWidth={1.7} />
-      Pets
+      {app.petsVisible ? "Pets" : "Show pets"}
     </button>
 
     <button

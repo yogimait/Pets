@@ -45,7 +45,7 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 
 - Sidebar 220 px, topbar 48 px, max content width 1120 px.
 - Orchestrator overlay 920x680 default, resizable to a 640x480 floor, centered, frameless, on top of the desktop; no dock. Body text is 15px, controls are at least 32px high, and the composer grows with its draft up to 160px; longer drafts scroll inside the field so they cannot cover the thread.
-- Pets are nine 56x80 transparent frameless always-on-top windows, visible at startup. Each agent has a distinct idle area and working area: idle pets wander slowly with pauses, active pets pace faster near the work area. Drag any pet to reposition it; the drop point becomes its new idle anchor. A shared 340x180 transparent comic speech-bubble window opens on hover/click; no app window appears.
+- Pets are nine 56x80 transparent frameless always-on-top windows, visible at startup. Each agent has a distinct idle area and working area: idle pets wander slowly with pauses, active pets pace faster near the work area. Drag any pet to reposition it; the drop point becomes its new idle anchor. The topbar `Pets` control toggles hide/show and pauses their motion while hidden. Closing the main window exits the app and closes all pets. A shared 340x180 transparent comic speech-bubble window opens on hover/click; no app window appears.
 - Detail sheets 460 px, full height, border-left, backdrop dim at 50%.
 - Below 1200 px, secondary table columns drop before content truncates. Below 1280 px, overview panels collapse to one column.
 
@@ -63,7 +63,7 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 | Chat overlay | Black `#050505`, 1 px `#3d3d3d` border, zero radius, role labels in uppercase mono, no bubbles, green square only for the simulated marker |
 | Assistant output | Safe Markdown subset: headings, paragraphs, lists, fenced code, inline code, bold, quotes, rules, and bordered tables. Raw HTML renders as text. Tables wrap; no horizontal page overflow. |
 | Task form | Right sheet; project, owner, title, description, acceptance, priority, and start-now checkbox. Backend validates and returns the authoritative snapshot. |
-| Pets | Nine independent 56x80 pixel sprites; transparent background; drag surface is exactly the sprite, not the transparent window margin; idle and working movement zones; shared comic speech bubble with name, role, status, current task, and latest activity. |
+| Pets | Nine independent 56x80 pixel sprites; transparent background; drag surface is exactly the sprite, not the transparent window margin; idle and working movement zones; topbar show/hide toggle pauses motion; close app to remove all pets; shared comic speech bubble with name, role, status, current task, and latest activity. |
 
 ## Motion
 

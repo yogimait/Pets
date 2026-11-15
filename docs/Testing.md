@@ -300,6 +300,10 @@ Opened the pets from the main topbar.
 - hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
 - the main app does not open from a pet
 - bubble hides when the pointer leaves the pet, after 4 seconds, or via close
+- topbar `Pets` hides all nine windows; `Show pets` restores all nine and unhides motion
+- hidden pets pause movement; showing them resumes from the last position
+- closing the main window exits the app process and removes all pet windows
+- launching the app while it is already running exits the second process, focuses the existing main window, and does not add pet windows
 - topbar Pets re-shows all pet windows
 
 ### Packaged agents and installer

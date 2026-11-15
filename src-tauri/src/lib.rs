@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder};
@@ -176,6 +177,14 @@ struct PetBubbleState(Mutex<Option<String>>);
 #[derive(Default)]
 struct PetDragState(Mutex<Option<(String, u64)>>);
 
+struct PetVisibilityState(AtomicBool);
+
+impl Default for PetVisibilityState {
+    fn default() -> Self {
+        Self(AtomicBool::new(true))
+    }
+}
+
 fn pet_label(agent_id: &str) -> String {
     format!("pet-{agent_id}")
 }
@@ -241,7 +250,8 @@ fn show_pets(app: &tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn open_pets(app: tauri::AppHandle) {
+fn open_pets(app: tauri::AppHandle, visibility: State<'_, PetVisibilityState>) {
+    visibility.0.store(true, Ordering::Relaxed);
     show_pets(&app);
 }
 
@@ -257,7 +267,12 @@ fn hide_all_pets(app: &tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn hide_pets(app: tauri::AppHandle, state: State<'_, PetBubbleState>) {
+fn hide_pets(
+    app: tauri::AppHandle,
+    state: State<'_, PetBubbleState>,
+    visibility: State<'_, PetVisibilityState>,
+) {
+    visibility.0.store(false, Ordering::Relaxed);
     hide_all_pets(&app);
     if let Ok(mut active) = state.0.lock() {
         *active = None;
@@ -457,6 +472,13 @@ fn spawn_pet_motion(app: tauri::AppHandle) {
         let mut tick: u64 = 0;
         loop {
             tokio::time::sleep(Duration::from_millis(90)).await;
+            if !app
+                .state::<PetVisibilityState>()
+                .0
+                .load(Ordering::Relaxed)
+            {
+                continue;
+            }
             tick = tick.wrapping_add(1);
             let snapshot = app
                 .state::<workforce::WorkforceStore>()
@@ -575,6 +597,18 @@ pub fn run() {
     tauri::Builder::default()
         .manage(OpenCodeState::new())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                window.app_handle().exit(0);
+            }
+        })
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -587,6 +621,7 @@ pub fn run() {
             app.manage(store);
             app.manage(PetBubbleState::default());
             app.manage(PetDragState::default());
+            app.manage(PetVisibilityState::default());
             if let Err(error) = install_bundled_agents() {
                 eprintln!("bundled agent install failed: {error}");
             }
