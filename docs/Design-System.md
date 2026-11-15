@@ -45,7 +45,7 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 
 - Sidebar 220 px, topbar 48 px, max content width 1120 px.
 - Orchestrator overlay 920x680 default, resizable to a 640x480 floor, centered, frameless, on top of the desktop; no dock. Body text is 15px, controls are at least 32px high, and the composer grows with its draft up to 160px; longer drafts scroll inside the field so they cannot cover the thread.
-- Habitat strip 480x150, frameless, always on top; one row of specialist monograms with status dots. One window, not one per pet.
+- Habitat strip 480x150, frameless, always on top, visible at startup and positioned bottom-right; one row of specialist monograms with status dots, hover detail, click-through to the agent sheet, and a draggable header/footer. One window, not one per pet.
 - Detail sheets 460 px, full height, border-left, backdrop dim at 50%.
 - Below 1200 px, secondary table columns drop before content truncates. Below 1280 px, overview panels collapse to one column.
 
@@ -63,7 +63,7 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 | Chat overlay | Black `#050505`, 1 px `#3d3d3d` border, zero radius, role labels in uppercase mono, no bubbles, green square only for the simulated marker |
 | Assistant output | Safe Markdown subset: headings, paragraphs, lists, fenced code, inline code, bold, quotes, rules, and bordered tables. Raw HTML renders as text. Tables wrap; no horizontal page overflow. |
 | Task form | Right sheet; project, owner, title, description, acceptance, priority, and start-now checkbox. Backend validates and returns the authoritative snapshot. |
-| Habitat | 480x150 black strip; seven specialist cards with two-letter monograms and status dots; display-only. |
+| Habitat | 480x150 black strip; seven specialist cards with two-letter monograms and status dots; hover shows role/status, click opens the agent sheet, header/footer drag the window. |
 
 ## Motion
 

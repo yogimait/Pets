@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, PhysicalPosition};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[derive(Serialize)]
@@ -156,9 +156,26 @@ fn hide_orchestrator(app: tauri::AppHandle) {
     }
 }
 
+fn place_pets(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("pets") else {
+        return;
+    };
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let area = monitor.size();
+    let origin = monitor.position();
+    let x = origin.x + area.width as i32 - size.width as i32 - 16;
+    let y = origin.y + area.height as i32 - size.height as i32 - 56;
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
 fn show_pets(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("pets") {
-        let _ = window.center();
+        place_pets(app);
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -186,6 +203,9 @@ fn open_record(app: tauri::AppHandle, kind: String, id: String) {
     }
     if let Some(overlay) = app.get_webview_window("orchestrator") {
         let _ = overlay.hide();
+    }
+    if let Some(pets) = app.get_webview_window("pets") {
+        let _ = pets.hide();
     }
 }
 
@@ -217,6 +237,7 @@ pub fn run() {
                 eprintln!("global shortcut registration failed: {error}");
             }
 
+            place_pets(app.handle());
             let event_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 opencode::run_event_listener(event_app).await;

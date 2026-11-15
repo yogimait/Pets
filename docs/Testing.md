@@ -262,10 +262,12 @@ Created a task from **Tasks → New task** with project `CORE`, owner Pixel, tit
 
 Opened the Pets strip from the main topbar.
 
-- 480x151 Tauri window
+- 480x151 Tauri window, visible at startup at bottom-right
 - seven specialist monograms and status dots
 - one habitat window, no per-pet windows
-- close button hides the strip
+- hover shows role/status in the footer
+- click opens the agent sheet and hides the strip
+- close button hides the strip; topbar Pets reopens it
 
 ### Packaged agents and installer
 

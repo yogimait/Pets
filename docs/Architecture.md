@@ -177,7 +177,7 @@ Dreamer reads project context, review/done task results, and existing memory. It
 - Worktrees require a clean Git repo and a fast-forwardable base branch; merge conflicts remain manual.
 - Manual tasks are created from Tasks → New task; there is no task editing form.
 - One chat session per project; if OpenCode restarts, the next chat recreates it.
-- The habitat is display-only: status dots and names, no pet interaction yet.
+- The habitat is a persistent desktop strip: status dots, hover detail, click-through to the agent sheet, and a draggable header. No independent pet simulation.
 - The packaged installer is NSIS; bundled agents are installed into the global OpenCode agent directory on startup.
 - Manual live runtime smoke passed; no full Plan/task/Dreamer evaluation has been run.
 - No visual regression or DOM test harness.
