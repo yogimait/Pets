@@ -94,14 +94,12 @@ The prompt is sent to an OpenCode session owned by the mapped agent. The agent's
 - Agent sync and validation scripts.
 - Task routing by owner id.
 - Prompt preview in Agent detail.
-- 27 Node tests and 19 Rust tests.
+- 27 Node tests and 20 Rust tests.
 
 ## Pending
 
-- Streaming OpenCode events.
-- Worktree isolation for coding tasks.
 - Skill loading at runtime.
-- Live model evaluation.
 - Editable agent routing in the UI.
+- Manual task creation outside Plan.
 
 Related: [[Architecture]] · [[Testing]] · [[First-Draft]]

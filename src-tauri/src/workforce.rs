@@ -24,6 +24,7 @@ pub struct WorkforceStore {
     sessions: Mutex<HashMap<String, String>>,
     run_lock: AsyncMutex<()>,
     session_lock: AsyncMutex<()>,
+    worktrees_root: PathBuf,
 }
 
 impl WorkforceStore {
@@ -32,6 +33,12 @@ impl WorkforceStore {
             fs::create_dir_all(parent)
                 .map_err(|error| format!("Could not create app data directory: {error}"))?;
         }
+        let worktrees_root = path
+            .parent()
+            .map(|parent| parent.join("worktrees"))
+            .unwrap_or_else(|| PathBuf::from("worktrees"));
+        fs::create_dir_all(&worktrees_root)
+            .map_err(|error| format!("Could not create worktree directory: {error}"))?;
         let conn = Connection::open(&path)
             .map_err(|error| format!("Could not open workforce database: {error}"))?;
         conn.busy_timeout(Duration::from_secs(10))
@@ -50,6 +57,7 @@ impl WorkforceStore {
             sessions: Mutex::new(HashMap::new()),
             run_lock: AsyncMutex::new(()),
             session_lock: AsyncMutex::new(()),
+            worktrees_root,
         })
     }
 
@@ -956,6 +964,12 @@ pub async fn workforce_accept_task(
             "Task {task_id} has no linked OpenCode session; run it again before accepting."
         ));
     }
+    let project_id = current
+        .get("projectId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Task {task_id} has no projectId."))?;
+    let base_repo = repo_path(get_project(&snapshot, project_id)?)?;
+    let merged_branch = merge_isolated_worktree(&base_repo, current)?;
     store.update(|value| {
         let current_status = find_task(value, &task_id)
             .and_then(|task| task.get("status").and_then(Value::as_str));
@@ -967,6 +981,11 @@ pub async fn workforce_accept_task(
             task["status"] = json!("done");
             task["updatedAt"] = json!(now_ms());
             task["finishedAt"] = json!(now_ms());
+            task["worktreePath"] = Value::Null;
+            task["worktreeBranch"] = Value::Null;
+            if let Some(branch) = &merged_branch {
+                append_note(task, &format!("Merged isolated worktree branch {branch}."));
+            }
         }
         clear_agent_current_task(value, &owner, &task_id);
         push_activity(
@@ -1389,10 +1408,23 @@ async fn start_task(
     if !Path::new(&repo).is_dir() {
         return Err(format!("Project directory does not exist: {repo}"));
     }
-    require_policy(&repo)?;
+    let worktree = create_isolated_worktree(store, &repo, task_id)?;
+    let work_dir = worktree
+        .as_ref()
+        .map(|(path, _)| path.as_str())
+        .unwrap_or(&repo)
+        .to_string();
+    require_policy(&work_dir)?;
     let (provider_id, model_id) = model_config()?;
     let agent_id = opencode_agent_id(&snapshot, &owner);
-    let prompt = task_prompt(&snapshot, &project, &task, &agent_id);
+    let prompt_project = if worktree.is_some() {
+        let mut project = project.clone();
+        project["repoPath"] = json!(work_dir);
+        project
+    } else {
+        project.clone()
+    };
+    let prompt = task_prompt(&snapshot, &prompt_project, &task, &agent_id);
     let started_at = now_ms();
     store.update(|value| {
         let current = find_task(value, task_id)
@@ -1408,6 +1440,13 @@ async fn start_task(
             task["finishedAt"] = Value::Null;
             task["startedAt"] = json!(started_at);
             task["updatedAt"] = json!(started_at);
+            if let Some((path, branch)) = &worktree {
+                task["worktreePath"] = json!(path);
+                task["worktreeBranch"] = json!(branch);
+            } else {
+                task["worktreePath"] = Value::Null;
+                task["worktreeBranch"] = Value::Null;
+            }
         }
         set_agent_current_task(value, &owner, task_id);
         Ok(())
@@ -1417,7 +1456,7 @@ async fn start_task(
         project_label(&project),
         task.get("title").and_then(Value::as_str).unwrap_or("task")
     );
-    if let Err(error) = runtime.ensure(&repo).await {
+    if let Err(error) = runtime.ensure(&work_dir).await {
         let note = format!("Could not start OpenCode: {error}");
         let _ = store.update(|value| {
             mark_blocked(value, task_id, &note);
@@ -1427,7 +1466,7 @@ async fn start_task(
     }
     let session = match create_session(
         runtime,
-        &repo,
+        &work_dir,
         &title,
         &agent_id,
         &provider_id,
@@ -2252,6 +2291,115 @@ fn repo_path(project: &Value) -> Result<String, String> {
     Ok(repo.to_string())
 }
 
+fn git_output(repo: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .map_err(|error| format!("Could not run git: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            stderr.trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn is_git_repo(repo: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn worktree_name(task_id: &str) -> String {
+    task_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn create_isolated_worktree(
+    store: &WorkforceStore,
+    repo: &str,
+    task_id: &str,
+) -> Result<Option<(String, String)>, String> {
+    if !is_git_repo(repo) {
+        return Ok(None);
+    }
+    if !git_output(repo, &["status", "--porcelain"])?.trim().is_empty() {
+        return Err(format!(
+            "Project has uncommitted changes. Commit or stash them before an isolated task runs in {repo}."
+        ));
+    }
+
+    let name = worktree_name(task_id);
+    let branch = format!("agent-bots/{name}");
+    let path = store.worktrees_root.join(&name);
+    let path_text = path.to_string_lossy().to_string();
+
+    let _ = git_output(repo, &["worktree", "remove", "--force", &path_text]);
+    let _ = git_output(repo, &["branch", "-D", &branch]);
+    if path.exists() {
+        fs::remove_dir_all(&path)
+            .map_err(|error| format!("Could not clear stale worktree {}: {error}", path.display()))?;
+    }
+
+    git_output(repo, &["worktree", "add", "-b", &branch, &path_text, "HEAD"])?;
+    Ok(Some((path_text, branch)))
+}
+
+fn merge_isolated_worktree(repo: &str, task: &Value) -> Result<Option<String>, String> {
+    let Some(path) = task.get("worktreePath").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let Some(branch) = task.get("worktreeBranch").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if !Path::new(path).is_dir() {
+        return Err(format!("Isolated worktree is missing: {path}"));
+    }
+
+    if !git_output(path, &["status", "--porcelain"])?.trim().is_empty() {
+        git_output(path, &["add", "-A"])?;
+        let message = format!(
+            "agent-bots: {}",
+            task.get("title").and_then(Value::as_str).unwrap_or("task result")
+        );
+        git_output(
+            path,
+            &[
+                "-c",
+                "user.name=Agent Bots",
+                "-c",
+                "user.email=agent-bots@local",
+                "commit",
+                "-m",
+                &message,
+            ],
+        )?;
+    }
+
+    git_output(repo, &["merge", "--ff-only", branch])?;
+    let _ = git_output(repo, &["worktree", "remove", "--force", path]);
+    let _ = git_output(repo, &["branch", "-D", branch]);
+    let _ = fs::remove_dir(path);
+    Ok(Some(branch.to_string()))
+}
+
 fn project_label(project: &Value) -> String {
     project
         .get("key")
@@ -2598,6 +2746,12 @@ fn split_model(raw: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_names_are_git_safe() {
+        assert_eq!(worktree_name("t-1794-0"), "t-1794-0");
+        assert_eq!(worktree_name("task/with spaces"), "task-with-spaces");
+    }
 
     #[test]
     fn extracts_first_json_object_from_prose() {

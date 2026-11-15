@@ -9,7 +9,7 @@
 | `npm run check:agents` | Validate generated OpenCode agent files | 9 agents pass |
 | `npm run build` | Production renderer bundle | Passes, about 281 KB JS / 33 KB CSS |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust type check | Passes |
-| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 19 tests pass |
+| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 20 tests pass |
 | `npx tauri build --no-bundle` | Release application compile | Passes; `agent-bots.exe` built |
 | `impeccable detect src --json` | Design detector | 0 findings |
 
@@ -247,6 +247,18 @@ was denied with `Permission denied: shell`; the directory and `keep.txt` remaine
 
 Residual risk: shell deny rules are pattern-based, not a sandbox. A command that does not match a listed pattern can still run.
 
+### Git worktree isolation
+
+Created a temporary clean Git repo with `AGENTS.md` and `README.md`, added a temporary app project and read-only Scout task.
+
+- task ran in `appdata/worktrees/<task-id>`
+- branch was `agent-bots/<task-id>`
+- session id and worktree path were stored on the task
+- Accept fast-forwarded the base branch and removed the worktree registration/branch
+- task moved to done
+
+Not tested live: dirty-base rejection and merge conflicts. The worktree directory can remain empty briefly while OpenCode releases its cwd handle.
+
 ### Visual and keyboard
 
 - 920x680 default overlay verified
@@ -286,7 +298,7 @@ The runtime panel shows a yellow dot for failed or pending MCP servers; hover th
 - Unexpected non-MCP permission requests during unattended task runs.
 - Long-running concurrent tasks under model load.
 - SSE reconnect during a long active turn and any event loss across disconnects.
-- Worktree isolation (not implemented).
+- Worktree merge conflicts and dirty-base rejection are not live-tested.
 - Provider credential failure.
 - DevVault maintenance by a task on a real production codebase; the write test used `Live Test`.
 - Shell commands outside the current destructive-pattern list; pattern matching is not a sandbox.

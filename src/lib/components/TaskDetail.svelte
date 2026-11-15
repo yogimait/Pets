@@ -197,6 +197,20 @@
         </Section>
       {/if}
 
+      {#if task.worktreePath}
+        <Section title="Isolated worktree">
+          <p class="break-all rounded-control border border-line-soft bg-canvas px-3 py-2 font-mono text-[10.5px] text-ink-2">
+            {task.worktreePath}
+          </p>
+          {#if task.worktreeBranch}
+            <p class="mt-1 font-mono text-[9.5px] text-ink-4">{task.worktreeBranch}</p>
+          {/if}
+          <p class="mt-1 text-[10px] leading-relaxed text-ink-4">
+            Accept result commits and merges this worktree branch back into the project, then removes the worktree.
+          </p>
+        </Section>
+      {/if}
+
       {#if task.sessionId}
         <Section title="OpenCode session">
           <p class="truncate rounded-control border border-line-soft bg-canvas px-3 py-2 font-mono text-[10.5px] text-ink-2">

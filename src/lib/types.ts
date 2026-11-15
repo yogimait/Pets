@@ -104,6 +104,8 @@ export interface Task {
   startedAt?: number;
   finishedAt?: number;
   permission?: TaskPermission | null;
+  worktreePath?: string | null;
+  worktreeBranch?: string | null;
 }
 
 export interface ActivityEvent {

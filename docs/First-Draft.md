@@ -98,12 +98,10 @@ The app mediates all work. That is what keeps the workflow auditable and prevent
 
 ## 8. What is intentionally not done
 
-- Full live Plan/task/Dreamer evaluation with provider keys.
-- SSE streaming.
-- Git worktrees for coding tasks.
 - Manual task creation form. Project creation/import is implemented.
 - Desktop pet habitat.
-- A permission approval queue for unattended task sessions.
+- Packaged installer flow and agent installation on install.
+- Provider credential failure handling.
 - Normalized SQLite tables.
 
 Do not use this draft on an untrusted repository with broad shell permissions yet.

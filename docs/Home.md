@@ -61,7 +61,7 @@ See [[First-Draft]] for the operator walkthrough.
 ## Current limits
 
 - SSE event updates with a 15-second polling fallback; no replay after disconnects.
-- No worktrees.
+- Git tasks use isolated worktrees; accept fast-forwards the base branch.
 - No manual task creation form; tasks come from Plan or the seed.
 - No pets habitat.
 - Manual live model smoke passed; full Plan/task/Dreamer evaluation still pending.
