@@ -271,6 +271,7 @@ Opened the Pets strip from the main topbar.
 
 - the release binary embeds the nine generated agents
 - startup installs them into `~/.config/opencode/agent` when the file is missing or still Agent-Bots-generated
+- verified by removing global `pixel.md` and relaunching; the app recreated it
 - NSIS installer built at `src-tauri/target/release/bundle/nsis/Agent Bots_0.1.0_x64-setup.exe`
 
 Installer launch, upgrade, and uninstall are not tested.
