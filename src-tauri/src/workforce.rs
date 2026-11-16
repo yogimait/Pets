@@ -1210,8 +1210,8 @@ pub async fn workforce_update_task(
     if !matches!(priority.as_str(), "low" | "normal" | "high" | "critical") {
         return Err("Priority must be low, normal, high, or critical.".to_string());
     }
-    if !agent_exists(&snapshot, &owner_id) {
-        return Err(format!("Unknown owner: {owner_id}"));
+    if !available_owners(&snapshot).iter().any(|id| id == &owner_id) {
+        return Err(format!("Task owner must be a specialist agent, got: {owner_id}"));
     }
     store.update(|value| {
         let (old_owner, project_id, old_title) = task_meta(value, &task_id);
