@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { X } from "@lucide/svelte";
-  import { app, hidePets, init } from "../state/app.svelte.ts";
+  import { app, init } from "../state/app.svelte.ts";
   import { PETS, type PetMeta } from "../pets.ts";
 
   type PetState = PetMeta & {
@@ -189,17 +189,7 @@
     class="flex h-8 cursor-move select-none items-center justify-between border-b border-white/10 bg-[#0a0b0d]/70 px-2.5"
   >
     <span class="font-mono text-[9px] uppercase tracking-[0.16em] text-white/55">Pet pen</span>
-    <div class="flex items-center gap-1.5">
-      <span class="font-mono text-[9px] text-white/35">drag to move · corner to resize</span>
-      <button
-        type="button"
-        onclick={() => void hidePets()}
-        aria-label="Hide pet pen"
-        class="grid size-5 place-items-center rounded border border-white/10 text-white/60 hover:bg-white/10 hover:text-white"
-      >
-        <X size={11} strokeWidth={2} />
-      </button>
-    </div>
+    <span class="font-mono text-[9px] text-white/35">drag to move · corner to resize</span>
   </header>
 
   <div class="relative h-[calc(100%-2rem)] w-full">
