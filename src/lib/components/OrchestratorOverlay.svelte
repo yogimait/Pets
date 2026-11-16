@@ -158,7 +158,8 @@
 <div class="flex h-full flex-col bg-[#050505] text-[#ededed] {windowMode ? 'border border-[#3d3d3d]' : ''}">
   <header class="flex h-12 shrink-0 items-center justify-between border-b border-[#232323] px-5">
     <div class="flex items-baseline gap-2.5">
-      <span class="text-[11.5px] font-medium uppercase tracking-[0.18em] text-[#ededed]">Orchestrator</span>
+      <span class="text-[11.5px] font-medium uppercase tracking-[0.18em] text-[#ededed]">Micheal</span>
+      <span class="text-[9.5px] uppercase tracking-[0.12em] text-[#5f5f5f]">Orchestrator</span>
       {#if live}
         <span class="text-[10px] uppercase tracking-[0.12em] text-[#8a8a8a]">local</span>
       {:else}
@@ -189,7 +190,7 @@
           <span
             class="text-[10.5px] uppercase tracking-[0.16em] {message.role === 'user' ? 'text-[#ededed]' : 'text-[#8a8a8a]'}"
           >
-            {message.role === "user" ? "You" : "Orchestrator"}
+            {message.role === "user" ? "You" : "Micheal"}
           </span>
           <span class="font-mono text-[10px] text-[#4d4d4d]">{clockTime(message.at)}</span>
         </div>
@@ -215,7 +216,7 @@
 
     {#if app.pending}
       <div class="py-4" aria-live="polite">
-        <span class="text-[10.5px] uppercase tracking-[0.16em] text-[#8a8a8a]">Orchestrator</span>
+        <span class="text-[10.5px] uppercase tracking-[0.16em] text-[#8a8a8a]">Micheal</span>
         <p class="mt-2 flex items-center gap-2 text-[14px] text-[#8a8a8a]">
           <span class="size-1.5 animate-pulse bg-[#ededed]" aria-hidden="true"></span>
           {mode === "plan" ? "Planning" : "Working"}

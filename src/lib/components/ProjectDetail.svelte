@@ -67,7 +67,7 @@
               onclick={() => openSheet("agent", agent.id)}
               class="flex w-full items-center gap-2.5 rounded-control border border-line-soft bg-surface px-2.5 py-1.5 text-left transition-colors hover:bg-raised"
             >
-              <Avatar name={agent.name} size="xs" />
+              <Avatar name={agent.name} agentId={agent.id} size="xs" />
               <span class="min-w-0 flex-1 truncate text-[11.5px] text-ink">{agent.name}</span>
               <span class="text-[10px] text-ink-4">{agent.role}</span>
             </button>

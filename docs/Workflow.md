@@ -68,11 +68,20 @@ flowchart TD
 
 Current behavior:
 
-- Permission requests appear on the task in **Tasks**, and as an activity entry. They are the app's real "agent needs you" signal.
-- There is no separate questions inbox or desktop notification.
-- Generated agents deny the OpenCode `question` tool. An agent cannot pop a live question dialog. It should either request a permission, stop blocked, or return a result explaining what it needs.
-- Orchestrator questions are ordinary chat replies. They are visible only when you open the orchestrator.
+- Permission requests appear on the task in **Tasks**, in the topbar **Alerts** bell, and as an activity entry.
+- Task transitions to review, permission, or blocked send a native desktop notification with the agent name and project key.
+- There is no separate live question inbox. Generated agents deny the OpenCode `question` tool; an agent cannot pop a live dialog. It should request a permission, stop blocked, or return a result explaining what it needs.
+- Orchestrator questions are ordinary chat replies. Open the orchestrator to read them.
 - If a permission is denied, the task becomes blocked and the session is interrupted.
+
+## Review actions
+
+A task result is never auto-accepted. At review you can:
+
+- **Accept result** — mark done, merge an isolated Git worktree when present, and unblock dependents.
+- **Reject result** — requires a short reason; the task becomes blocked with that reason in its notes.
+- **Edit task** — change title, description, acceptance, priority, or owner. Editing a review task moves it back to blocked so the old result cannot be mistaken for the new scope.
+- **Retry** — start a blocked task again after editing or after fixing the cause.
 
 ## Where progress appears
 
@@ -153,6 +162,38 @@ npm run check:agents
 
 There is currently no per-role model selector in the app. Frontend, backend, research, testing, and the orchestrator all use the same `AGENT_BOTS_MODEL` override.
 
+## Memory automation
+
+Dreamer runs on demand, not concurrently with specialist tasks. It reads the selected project's task results, project markdown, DevVault hub, and memory evidence.
+
+When a Dreamer run finishes:
+
+- proposals with confidence **at or above 80%** are approved and applied automatically
+- proposals below 80% are rejected automatically
+- the run and the auto-decision counts appear in Activity
+- pending proposals from earlier runs are auto-reviewed the same way on app start and on the next Dreamer run
+
+Change the cutoff:
+
+```powershell
+$env:AGENT_BOTS_MEMORY_THRESHOLD = "0.9"
+```
+
+The default is `0.8`. Automatic acceptance does not bypass project scoping or evidence requirements.
+
+## Code quality gate
+
+Every task prompt now requires the agent to:
+
+- inspect the existing project structure before editing
+- preserve established conventions
+- use real components or modules instead of a monolithic source dump
+- add a focused test for non-trivial logic
+- run the project's typecheck, lint, tests, and build
+- report changed files and exact checks
+
+Plan prompts also require an explicit structure, runnable checks, and a final independent quality/audit gate for implementation work. The Auditing role now covers file structure, duplication, dead code, testability, and convention drift in addition to security.
+
 ## End-to-end expectation
 
 A realistic test run looks like this:
@@ -170,10 +211,12 @@ A task does not silently become done. It waits in review. A task can also stop b
 
 ## Current limits
 
-- No live agent question dialog. Review results and permission cards remain the approval surfaces; the alerts bell surfaces them.
+- No live agent question dialog. Review results and permission cards remain the approval surfaces; Alerts and native notifications surface them.
 - No token streaming or precise step progress.
 - One model for all roles. Agent tool permissions already auto-allow safe workspace and MCP actions; destructive, external, secret, and question operations remain denied.
-- Review acceptance is always manual; the app does not auto-accept a result.
+- Review acceptance is always manual; the app does not auto-accept a task result.
+- Dreamer is on demand, not a continuously running background agent.
+- Native notifications require the Windows notification permission; if denied, the in-app Alerts bell still works.
 - Git tasks require a clean repository and use worktrees; merge conflicts require manual resolution.
 - MCP tool actions are auto-allowed; non-MCP approvals use the task permission card.
 

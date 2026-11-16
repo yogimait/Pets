@@ -7,9 +7,13 @@ import {
   workforceAcceptTask,
   workforceAbortTask,
   workforceAvailable,
+  workforceRejectTask,
+  workforceUpdateTask,
+  type TaskEditInput,
   workforceCreateProject,
   workforceCreateTask,
   workforceDecideProposal,
+  workforceAutoMemories,
   workforceDreamer,
   workforcePlan,
   workforcePoll,
@@ -24,6 +28,7 @@ import {
   type TaskInput,
 } from "../workforce.ts";
 import type { View } from "../nav.ts";
+import { notify } from "../notifications.ts";
 
 export type SheetKind = "agent" | "project" | "project-new" | "task" | "memory" | "proposal";
 
@@ -48,6 +53,7 @@ export const app = $state({
   policyError: null as string | null,
   workforceError: null as string | null,
   workforceBusy: false,
+  dreamerRunning: false,
 });
 
 let started = false;
@@ -71,6 +77,17 @@ export async function init(): Promise<void> {
     const snapshot = await loadInitialSnapshot();
     app.snapshot = snapshot;
     app.chat = snapshot.chat ?? [];
+    if (workforceAvailable()) {
+      try {
+        const reviewed = await workforceAutoMemories();
+        if (reviewed) {
+          app.snapshot = reviewed;
+          app.chat = reviewed.chat ?? [];
+        }
+      } catch (error) {
+        console.warn("automatic memory review unavailable", error);
+      }
+    }
   } catch (error) {
     app.workforceError = String(error);
     return;
@@ -199,12 +216,29 @@ export async function acceptTask(taskId: string): Promise<boolean> {
   return accepted;
 }
 
+export function rejectTask(taskId: string, note: string): Promise<boolean> {
+  return runWorkforceAction(() => workforceRejectTask(taskId, note));
+}
+
+export function updateTask(input: TaskEditInput): Promise<boolean> {
+  return runWorkforceAction(() => workforceUpdateTask(input));
+}
+
 export function abortTask(taskId: string): Promise<boolean> {
   return runWorkforceAction(() => workforceAbortTask(taskId));
 }
 
-export function runDreamer(projectId: string): Promise<boolean> {
-  return runWorkforceAction(() => workforceDreamer(projectId));
+export async function runDreamer(projectId: string): Promise<boolean> {
+  const project = app.snapshot?.projects.find((candidate) => candidate.id === projectId);
+  app.dreamerRunning = true;
+  void notify("Dreamer started", `Consolidating memory for ${project?.key ?? projectId}`);
+  try {
+    const ok = await runWorkforceAction(() => workforceDreamer(projectId));
+    if (ok) void notify("Dreamer finished", `Memory proposals updated for ${project?.key ?? projectId}`);
+    return ok;
+  } finally {
+    app.dreamerRunning = false;
+  }
 }
 
 interface WorkforceEvent {
@@ -216,9 +250,41 @@ let syncStarted = false;
 let syncing = false;
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
 
+function notifyTransitions(previous: Snapshot | null, next: Snapshot): void {
+  if (!previous) return;
+  const previousTasks = new Map(previous.tasks.map((task) => [task.id, task]));
+  for (const task of next.tasks) {
+    const before = previousTasks.get(task.id);
+    const project = next.projects.find((candidate) => candidate.id === task.projectId);
+    const owner = next.agents.find((candidate) => candidate.id === task.ownerId);
+    const label = `${owner?.name ?? task.ownerId} · ${project?.key ?? task.projectId}`;
+    if (task.permission && !before?.permission) {
+      void notify("Approval needed", `${label}: ${task.title}`);
+    } else if (task.status === "review" && before?.status !== "review") {
+      void notify("Task ready for review", `${label}: ${task.title}`);
+    } else if (task.status === "blocked" && before?.status !== "blocked") {
+      void notify("Task needs attention", `${label}: ${task.title}`);
+    }
+  }
+
+  const completeProjects = next.projects.filter((project) => {
+    const tasks = next.tasks.filter((task) => task.projectId === project.id);
+    return tasks.length > 0 && tasks.every((task) => task.status === "done");
+  });
+  for (const project of completeProjects) {
+    const wasComplete = previous.tasks
+      .filter((task) => task.projectId === project.id)
+      .every((task) => task.status === "done");
+    if (!wasComplete) {
+      void notify("Project complete", `${project.key} · ${project.name}`);
+    }
+  }
+}
+
 async function syncNow(): Promise<void> {
   if (syncing) return;
   syncing = true;
+  const previous = app.snapshot;
   try {
     await workforceTick();
     const next = await workforcePoll();
@@ -226,6 +292,7 @@ async function syncNow(): Promise<void> {
     app.snapshot = next;
     app.chat = next.chat ?? [];
     app.workforceError = null;
+    notifyTransitions(previous, next);
   } catch (error) {
     app.workforceError = String(error);
   } finally {

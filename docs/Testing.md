@@ -9,7 +9,7 @@
 | `npm run check:agents` | Validate generated OpenCode agent files | 9 agents pass |
 | `npm run build` | Production renderer bundle | Passes, about 281 KB JS / 33 KB CSS |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Rust type check | Passes |
-| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 24 tests pass |
+| `cargo test --release --manifest-path src-tauri/Cargo.toml --lib` | Rust store, JSON extraction, dependency, scheduler, seed/migration, project validation, starter files, permission parsing, SSE frames | 26 tests pass |
 | `npx tauri build --no-bundle` | Release application compile | Passes; `agent-bots.exe` built |
 | `npx tauri build --bundles nsis` | Windows installer | Passes; `Agent Bots_0.1.0_x64-setup.exe` (~3.46 MiB) |
 | `impeccable detect src --json` | Design detector | 0 findings |
@@ -213,7 +213,9 @@ SSE reconnect under long active turns and event loss across disconnects are not 
 
 ### Real empty workspace and Dreamer context
 
-- current database reset to real data: two projects (`core`, `lt`), nine idle agents, zero tasks, zero memory, zero chat
+- automatic memory review approves proposals at 80%+ and rejects below 80%; unit-tested at the threshold
+- agent display names are the pet names and agent cards use the pixel sprites
+- current database uses three projects (`core`, `lt`, `sexyc`), twelve done tasks, six approved memory entries, and decided proposals after the automatic threshold pass
 - demo projects Vault, Field Notes, and Launch Page removed
 - browser preview is read-only and no longer scripted
 - fixtures remain only for unit tests
@@ -300,7 +302,9 @@ Opened the pets from the main topbar.
 - hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
 - the main app does not open from a pet
 - bubble hides when the pointer leaves the pet, after 4 seconds, or via close
-- topbar Alerts shows the two pending review results for the Sexy-calculator project; Review next opens the task sheet with Accept result
+- topbar Alerts shows pending review results; Review next opens the task sheet with Accept result, Reject result, and Edit task
+- edit opens title, description, acceptance, priority, and owner fields; cancel leaves the task unchanged
+- accepting the final task appends a project-complete report and sends the desktop notification
 - topbar `Pets` hides all nine windows; `Show pets` restores all nine and unhides motion
 - hidden pets pause movement; showing them resumes from the last position
 - closing the main window exits the app process and removes all pet windows

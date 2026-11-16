@@ -51,7 +51,7 @@
           <div class="flex -space-x-1.5" aria-label={`${projectAgents.length} agents`}>
             {#each projectAgents.slice(0, 4) as agent (agent.id)}
               <span class="rounded-control ring-2 ring-surface">
-                <Avatar name={agent.name} size="xs" />
+                <Avatar name={agent.name} agentId={agent.id} size="xs" />
               </span>
             {/each}
             {#if projectAgents.length > 4}

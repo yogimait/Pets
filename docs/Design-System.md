@@ -57,7 +57,7 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 | Status badge | 1.5 px dot plus label, tinted border, never a filled pill |
 | Overview | Header, three-stat strip, active work, recent activity. No dashboard card grid. |
 | Metrics | One divided strip, not four separate cards. |
-| Avatar | Two-letter monogram, neutral raised square; accent border only for the orchestrator |
+| Avatar | Pixel pet sprite for workforce agents; neutral raised square with an accent border only for the orchestrator. Falls back to a two-letter monogram when no sprite exists. |
 | Sheet | Focused close button, Tab trap, Escape closes, focus returns to trigger |
 | Palette | 560 px panel, arrow navigation, accent left bar on the active row |
 | Chat overlay | Black `#050505`, 1 px `#3d3d3d` border, zero radius, role labels in uppercase mono, no bubbles, green square only for the simulated marker |
@@ -74,7 +74,7 @@ Radii: `rounded-control` 6 px, `rounded-panel` 10 px. Base font size 13 px.
 
 ## Content and honesty
 
-- The desktop topbar carries `Local data`; the browser preview is labeled `Browser preview` and cannot change data.
+- The desktop topbar carries `Local data` and an Alerts bell with the count of permission requests, review results, and blocked tasks. The browser preview is labeled `Browser preview` and cannot change data.
 - Chat shows `local` when the real workforce is available and `simulated` only in the browser preview. The overlay header and quiet keyboard hints stay visible; model reasoning is not shown, only the working state and the final reply.
 - Compact mode shows only the newest message (the reply, or the prompt while working). The footer button opens the full thread and carries the hidden message count; there is no separate "show earlier" bar.
 - The overlay is the one deliberate break from the charcoal system. It copies the daily tracker: black, square, monochrome.

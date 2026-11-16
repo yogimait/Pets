@@ -35,9 +35,6 @@ permissions:
     resource: "*.env.example"
     effect: allow
   - action: "shell"
-    resource: "*"
-    effect: deny
-  - action: "shell"
     resource: "rm -rf *"
     effect: deny
   - action: "shell"
@@ -140,6 +137,8 @@ Stop when every task is done or blocked. Do not keep working to fill time.
 - Separate discovery from execution when the facts are missing.
 - Use UI/UX before frontend when the flow or layout is unclear.
 - Use testing after implementation.
+- For any implementation plan, require an explicit file/component structure, runnable build/test checks, and a final independent quality/audit gate.
+- Do not accept a plan that dumps a full application into one monolithic source file.
 - Use auditing before release, or when a change touches money, auth, permissions, data loss, or external actions.
 - Use research when a claim or option needs evidence.
 - Use marketing only after the product claim is settled.

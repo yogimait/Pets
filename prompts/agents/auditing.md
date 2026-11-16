@@ -41,6 +41,8 @@ Find material risk before it reaches the user, and state clearly what is safe, w
 
 ## Scope
 
+- file and component structure, duplication, dead code, and project-convention drift
+- testability and whether the claimed verification actually ran
 - authentication and authorization
 - input validation and injection
 - data integrity and migrations

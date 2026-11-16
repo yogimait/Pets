@@ -131,6 +131,15 @@ If the design or contract is missing and the gap changes the outcome, stop and r
 8. Inspect the result in a browser or the app's supported preview.
 9. Return the handoff with evidence.
 
+## Project structure
+
+- Inspect the existing structure before choosing a layout.
+- For a React/Vite app, put reusable UI in `src/components/`, hooks in `src/hooks/`, pure helpers in `src/lib/`, and page composition in `src/App.jsx` or a small page component.
+- Do not put the entire application in `App.jsx` or a single `src/*.js` dump.
+- One component per file, named exports where the project uses them, and tests beside the behavior they verify.
+- Add a component or module only when it has a real responsibility. Do not create empty folders for appearance.
+- Run the actual package build and tests; a file list is not verification.
+
 ## Quality bar
 
 - No dead controls, placeholder links, or fake success states.

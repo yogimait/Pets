@@ -4,7 +4,7 @@
   import Section from "./Section.svelte";
   import Avatar from "./Avatar.svelte";
   import StatusBadge from "./StatusBadge.svelte";
-  import { abortTask, acceptTask, app, closeSheet, openSheet, openTask, replyTaskPermission, runTask } from "../state/app.svelte.ts";
+  import { abortTask, acceptTask, app, closeSheet, openSheet, openTask, rejectTask, replyTaskPermission, runTask, updateTask } from "../state/app.svelte.ts";
   import { agentById, projectById, taskById, taskStepProgress } from "../selectors.ts";
   import { workforceAvailable } from "../workforce.ts";
   import { fullTimestamp, timeAgo } from "../format.ts";
@@ -16,6 +16,42 @@
   let owner = $derived(task && app.snapshot ? agentById(app.snapshot, task.ownerId) : undefined);
   let progress = $derived(task ? taskStepProgress(task) : 0);
   const live = workforceAvailable();
+
+  let rejectionNote = $state("");
+  let editing = $state(false);
+  let editTitle = $state("");
+  let editDescription = $state("");
+  let editAcceptance = $state("");
+  let editPriority = $state<"low" | "normal" | "high" | "critical">("normal");
+  let editOwnerId = $state("");
+
+  function beginEdit() {
+    if (!task) return;
+    editTitle = task.title;
+    editDescription = task.description;
+    editAcceptance = task.acceptance ?? "";
+    editPriority = task.priority;
+    editOwnerId = task.ownerId;
+    editing = true;
+  }
+
+  async function saveEdit() {
+    if (!task) return;
+    const saved = await updateTask({
+      taskId: task.id,
+      title: editTitle,
+      description: editDescription,
+      acceptance: editAcceptance,
+      priority: editPriority,
+      ownerId: editOwnerId,
+    });
+    if (saved) editing = false;
+  }
+
+  async function reject() {
+    if (!task || !rejectionNote.trim()) return;
+    await rejectTask(task.id, rejectionNote.trim());
+  }
 
   const priorityTone: Record<string, string> = {
     low: "text-ink-4",
@@ -51,6 +87,13 @@
             >
               {task.status === "blocked" ? "Retry" : "Run now"}
             </button>
+            <button
+              onclick={beginEdit}
+              disabled={app.workforceBusy}
+              class="rounded-control border border-line-soft bg-surface px-3 py-1.5 text-[11px] text-ink-2 transition-colors hover:bg-hover disabled:opacity-40"
+            >
+              Edit task
+            </button>
           {:else if task.status === "review"}
             <button
               onclick={() => acceptTask(task!.id)}
@@ -58,6 +101,20 @@
               class="rounded-control border border-ok/40 bg-ok/10 px-3 py-1.5 text-[11px] text-ok transition-colors hover:bg-ok/15 disabled:opacity-40"
             >
               Accept result
+            </button>
+            <button
+              onclick={reject}
+              disabled={app.workforceBusy || !rejectionNote.trim()}
+              class="rounded-control border border-bad/40 bg-bad/10 px-3 py-1.5 text-[11px] text-bad transition-colors hover:bg-bad/15 disabled:opacity-40"
+            >
+              Reject result
+            </button>
+            <button
+              onclick={beginEdit}
+              disabled={app.workforceBusy}
+              class="rounded-control border border-line-soft bg-surface px-3 py-1.5 text-[11px] text-ink-2 transition-colors hover:bg-hover disabled:opacity-40"
+            >
+              Edit task
             </button>
             {#if !task.sessionId}
               <span class="text-[10px] text-ink-4">This seeded review has no linked session.</span>
@@ -68,12 +125,78 @@
               disabled={app.workforceBusy}
               class="rounded-control border border-bad/40 bg-bad/10 px-3 py-1.5 text-[11px] text-bad transition-colors hover:bg-bad/15 disabled:opacity-40"
             >
-              Abort
+              Stop task
             </button>
           {/if}
           {#if app.workforceBusy}
             <span class="text-[10px] text-ink-4" aria-live="polite">Applying…</span>
           {/if}
+        </div>
+      {/if}
+
+      {#if task.status === "review"}
+        <textarea
+          bind:value={rejectionNote}
+          rows="2"
+          placeholder="What should be changed? Required before rejecting."
+          class="w-full rounded-control border border-line-soft bg-canvas px-2.5 py-2 text-[11.5px] text-ink placeholder:text-ink-4 focus:border-accent/40 focus:outline-none"
+        ></textarea>
+      {/if}
+
+      {#if editing}
+        <div class="space-y-2 rounded-control border border-line-soft bg-raised p-3">
+          <p class="text-[10px] uppercase tracking-[0.1em] text-ink-4">Edit task before retry</p>
+          <input
+            bind:value={editTitle}
+            aria-label="Task title"
+            class="h-8 w-full rounded-control border border-line-soft bg-surface px-2 text-[11.5px] text-ink focus:border-accent/40 focus:outline-none"
+          />
+          <textarea
+            bind:value={editDescription}
+            rows="3"
+            aria-label="Task description"
+            class="w-full rounded-control border border-line-soft bg-surface px-2 py-1.5 text-[11px] text-ink focus:border-accent/40 focus:outline-none"
+          ></textarea>
+          <textarea
+            bind:value={editAcceptance}
+            rows="2"
+            aria-label="Task acceptance"
+            class="w-full rounded-control border border-line-soft bg-surface px-2 py-1.5 text-[11px] text-ink focus:border-accent/40 focus:outline-none"
+          ></textarea>
+          <div class="flex flex-wrap gap-2">
+            <select
+              bind:value={editPriority}
+              aria-label="Task priority"
+              class="h-8 rounded-control border border-line-soft bg-surface px-2 text-[11px] text-ink-2"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+            <select
+              bind:value={editOwnerId}
+              aria-label="Task owner"
+              class="h-8 rounded-control border border-line-soft bg-surface px-2 text-[11px] text-ink-2"
+            >
+              {#each (app.snapshot?.agents ?? []).filter((agent) => !["orchestrator", "dreamer"].includes(agent.id)) as agent (agent.id)}
+                <option value={agent.id}>{agent.name} A� {agent.role}</option>
+              {/each}
+            </select>
+            <button
+              onclick={saveEdit}
+              disabled={app.workforceBusy}
+              class="rounded-control border border-accent/40 bg-accent-soft px-2.5 py-1 text-[10.5px] text-ink disabled:opacity-40"
+            >
+              Save edit
+            </button>
+            <button
+              onclick={() => (editing = false)}
+              class="rounded-control px-2.5 py-1 text-[10.5px] text-ink-3 hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       {/if}
 
@@ -128,7 +251,7 @@
         >
           <p class="text-[9.5px] uppercase tracking-[0.1em] text-ink-4">Owner</p>
           <div class="mt-1.5 flex items-center gap-1.5">
-            <Avatar name={owner?.name ?? task.ownerId} size="xs" />
+            <Avatar name={owner?.name ?? task.ownerId} agentId={owner?.id ?? task.ownerId} size="xs" />
             <span class="truncate text-[11.5px] text-ink">{owner?.name ?? task.ownerId}</span>
           </div>
         </button>
@@ -233,7 +356,7 @@
         <div class="space-y-2.5">
           {#each task.messages as message (message.id)}
             <div class="flex gap-2">
-              <Avatar name={senderName(message.senderId)} size="xs" />
+              <Avatar name={senderName(message.senderId)} agentId={message.senderId} size="xs" />
               <div class="min-w-0 flex-1">
                 <div class="flex items-baseline gap-2">
                   <span class="text-[10.5px] text-ink-2">{senderName(message.senderId)}</span>

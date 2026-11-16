@@ -121,12 +121,33 @@ export function workforceAcceptTask(taskId: string): Promise<Snapshot> {
   return invoke<Snapshot>("workforce_accept_task", { taskId });
 }
 
+export function workforceRejectTask(taskId: string, note: string): Promise<Snapshot> {
+  return invoke<Snapshot>("workforce_reject_task", { taskId, note });
+}
+
+export interface TaskEditInput {
+  taskId: string;
+  title: string;
+  description: string;
+  acceptance: string;
+  priority: "low" | "normal" | "high" | "critical";
+  ownerId: string;
+}
+
+export function workforceUpdateTask(input: TaskEditInput): Promise<Snapshot> {
+  return invoke<Snapshot>("workforce_update_task", { ...input });
+}
+
 export function workforceAbortTask(taskId: string): Promise<Snapshot> {
   return invoke<Snapshot>("workforce_abort_task", { taskId });
 }
 
 export function workforceDreamer(projectId: string): Promise<Snapshot> {
   return invoke<Snapshot>("workforce_dreamer", { projectId });
+}
+
+export function workforceAutoMemories(): Promise<Snapshot> {
+  return invoke<Snapshot>("workforce_auto_memories");
 }
 
 export function workforceDecideProposal(

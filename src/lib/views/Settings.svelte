@@ -168,7 +168,7 @@
     <div class="divide-y divide-line-soft">
       {#each snapshot.agents as agent (agent.id)}
         <div class="flex items-center gap-3 px-3.5 py-2.5">
-          <Avatar name={agent.name} size="xs" />
+          <Avatar name={agent.name} agentId={agent.id} size="xs" />
           <div class="min-w-0 flex-1">
             <p class="truncate text-[11.5px] text-ink">{agent.name}</p>
             <p class="truncate text-[9.5px] text-ink-4">{agent.role}</p>

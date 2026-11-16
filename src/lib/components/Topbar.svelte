@@ -130,11 +130,11 @@
 
     <button
       onclick={openOrchestrator}
-      title="Open orchestrator (Alt+`)"
+      title="Open Micheal · Orchestrator (Alt+`)"
       class="flex items-center gap-1.5 rounded-control border border-line-soft bg-surface px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
     >
       <MessageSquare size={12} strokeWidth={1.7} />
-      Orchestrator
+      Micheal
     </button>
   </div>
 </header>

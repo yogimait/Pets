@@ -89,12 +89,12 @@ The orchestrator knows:
 - the selected project's `repoPath`, context, instructions, and `AGENTS.md`
 - the selected project's task board titles and statuses
 - up to eight approved memory entries for that project
-- project files it can read with OpenCode tools
+- project files it can read, and shell commands it can run for inspection and verification
 - recent project chat
 
-It does not know arbitrary folders on the PC. Generated agent permissions deny external directories, `.env` reads, and subagents. This is deliberate: the app controls filesystem access, the orchestrator controls planning inside the selected scope. Dreamer memory is scoped global/project/agent, not omniscient.
+It does not know arbitrary folders on the PC. Generated agent permissions deny external directories, `.env` reads, subagents, and edits; the orchestrator may read files and run non-destructive shell commands, but it cannot edit or accept work. This is deliberate: the app controls filesystem access, the orchestrator controls planning inside the selected scope. Dreamer memory is scoped global/project/agent, not omniscient.
 
-Chat is project-scoped in both storage and display: user messages and replies carry a project reference, and the visible thread filters by the selected project. The topbar Alerts bell surfaces permission requests, review results, and blocked tasks.
+Chat is project-scoped in both storage and display: user messages and replies carry a project reference, and the visible thread filters by the selected project. The topbar Alerts bell surfaces permission requests, review results, and blocked tasks. Task transitions, permissions, blocked tasks, and completed projects send native desktop notifications; if permission is denied, the in-app Alerts bell remains.
 
 ## OpenCode integration
 
@@ -105,7 +105,7 @@ The app does not implement a second model/tool loop. It attaches to the shared O
 - Task sessions use the owner's OpenCode agent: `pixel`, `forge`, `scout`, `voice`, `probe`, `iris`, `verity`.
 - Dreamer uses `dreamer`.
 - A session becomes review when `time.idle >= startedAt` or an outcome is set. A missing session or a run longer than 30 minutes becomes blocked.
-- Permissions: generated agent files allow workspace tools but deny questions, secrets, external directories, subagents, and obvious destructive commands. Task sessions do not add broader session permissions.
+- Permissions: generated agent files allow workspace tools and MCP but deny questions, secrets, external directories, subagents, edits for the orchestrator, and obvious destructive commands. Task sessions do not add broader session permissions. Review actions are Accept, Reject, Edit, and Retry.
 - Model selection: `AGENT_BOTS_MODEL` as `provider/model`, otherwise `opencode-go/deepseek-v4.1-flash`.
 - The global `AGENTS.md` and project `AGENTS.md` must both exist before a real run. The task prompt includes both policies, the role prompt, approved project memory, the DevVault root/Home/hub paths with the global maintenance rule, acceptance criteria, and the handoff contract.
 - Generated agents deny external directories except the DevVault root (`DEVVAULT_PATH`, default `%USERPROFILE%\Obsidian\DevVault`), so task agents can maintain their hub note and Home row as the global policy requires.
@@ -119,7 +119,7 @@ The app does not reimplement skills or MCP. The OpenCode child process loads the
 - The generated agents allow `skill` actions by default; no agent denies them.
 - Every task prompt includes the global `AGENTS.md`, so the Caveman/Ponytail working style is binding even when a skill is not explicitly loaded.
 - MCP servers at the same location report connected: `jev`, `laya`, `n8n-mcp`, `playwright`, `rea`, `stitch`.
-- MCP tool actions use `allow` rules in generated agents, so OpenCode runs them without a prompt. Interactive chat, Plan, and Dreamer still auto-reply `once` to any other pending permission (up to 16 per turn); the orchestrator permission set still denies shell, edit, subagent, external-directory, and `.env` access. Task detail keeps the permission panel as a fallback for unexpected requests. The `browser` deny is for OpenCode's built-in browser action, separate from `<server>_<tool>` MCP actions.
+- MCP tool actions use `allow` rules in generated agents, so OpenCode runs them without a prompt. Interactive chat, Plan, and Dreamer still auto-reply `once` to any other pending permission (up to 16 per turn); the orchestrator permission set allows read and non-destructive shell commands but still denies edit, subagent, external-directory, and `.env` access. Task detail keeps the permission panel as a fallback for unexpected requests. The `browser` deny is for OpenCode's built-in browser action, separate from `<server>_<tool>` MCP actions.
 - Limitation: the scheduler does not preflight MCP health before starting a task. Check Settings > OpenCode runtime for current status. External MCP actions remain a trust boundary, and shell actions are still broader than MCP actions.
 
 ## Agent sync
@@ -128,15 +128,15 @@ The app does not reimplement skills or MCP. The OpenCode child process loads the
 
 | App agent | OpenCode agent |
 |---|---|
-| Orchestrator | `orchestrator-workforce` |
-| Dreamer | `dreamer` |
-| Pixel | `pixel` |
-| Forge | `forge` |
-| Scout | `scout` |
-| Voice | `voice` |
-| Probe | `probe` |
-| Iris | `iris` |
-| Verity | `verity` |
+| Micheal · Orchestrator | `orchestrator-workforce` |
+| Holly · Memory | `dreamer` |
+| Jim · Frontend | `pixel` |
+| Dwight · Backend | `forge` |
+| Ryan · Research | `scout` |
+| Andy · Marketing | `voice` |
+| Erin · Testing | `probe` |
+| Pam · UI/UX | `iris` |
+| Stanley · Auditing | `verity` |
 
 Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` validates the generated files. The source prompt remains the single editable source.
 
@@ -161,7 +161,7 @@ Reference chips open the linked task, agent, or project in the main window. The 
 
 ## Memory
 
-Dreamer reads project context, review/done task results, existing memory, project `AGENTS.md`/`README.md`/`docs/*.md`, role prompts, and the project's DevVault hub note. It returns JSON findings and proposals. Proposals are stored as pending. Approving applies `add`, `update`, `delete`, or `merge` to canonical memory; rejecting records the decision only. Task prompts include the latest eight approved entries for that project.
+Dreamer reads project context, review/done task results, existing memory, project `AGENTS.md`/`README.md`/`docs/*.md`, role prompts, and the project's DevVault hub note. It returns JSON findings and proposals. Proposals are auto-decided at the configured confidence threshold: default 80% or higher is approved and applied; below 80% is rejected. `AGENT_BOTS_MEMORY_THRESHOLD` changes the cutoff. Pending proposals are auto-reviewed on app start and on the next Dreamer run. Task prompts include the latest eight approved entries for that project.
 
 ## Security posture
 
@@ -178,8 +178,10 @@ Dreamer reads project context, review/done task results, existing memory, projec
 
 - SSE is live-only and volatile; the bridge reconnects and a 15-second polling fallback recovers missed events. There is no replay or Last-Event-ID recovery.
 - Worktrees require a clean Git repo and a fast-forwardable base branch; merge conflicts remain manual.
-- Manual tasks are created from Tasks â†’ New task; there is no task editing form.
+- Manual tasks are created from Tasks â†’ New task. Queued, blocked, and review tasks can be edited inline from the task sheet.
 - One chat session per project; if OpenCode restarts, the next chat recreates it.
+- Review is always a human decision: Accept, Reject, or Edit.
+- Native notifications depend on Windows notification permission. The in-app Alerts bell works without it.
 - Pets are independent desktop windows. Each has a role-specific idle area and working area. Idle pets wander slowly around their area with pauses; active pets move faster around a central work area. Dragging a pet adopts its drop point as its idle anchor, so it stays where it was placed and then wanders from there.
 - The packaged installer is NSIS; bundled agents are installed into the global OpenCode agent directory on startup.
 - Live Dreamer consolidation and a real Live Test task/review/accept pass. Full Plan-mode evaluation is still pending.

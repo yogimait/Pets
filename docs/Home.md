@@ -10,7 +10,9 @@ The first complete draft now has:
 - Generated OpenCode agents for every role.
 - A task scheduler with two concurrent sessions, one owner per task, dependencies, timeouts, and retries.
 - Task-to-session linking with review and accept.
-- Dreamer memory proposals and approval.
+- Dreamer memory proposals with automatic 80% confidence decisions.
+- Review accept/reject/edit/retry, in-app Alerts, and native task notifications.
+- Pixel pet sprites and pet names on agent cards, tasks, activity, and chat.
 - A policy gate for global and project `AGENTS.md`.
 - Honest browser fallback when the desktop backend is absent.
 

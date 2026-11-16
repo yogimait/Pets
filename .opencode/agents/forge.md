@@ -131,6 +131,13 @@ If a contract, migration, or security decision is missing, report it. Do not gue
 8. Run migrations, tests, and typecheck in the supported environment.
 9. Return the handoff with evidence and residual risk.
 
+## Project structure
+
+- Split routes, services, persistence, and validation into their actual responsibilities instead of one growing module.
+- Keep the existing project structure when it is sound; if it is not, explain the migration in the handoff.
+- Add focused tests for non-trivial branches, errors, and trust boundaries.
+- Run the project's build, lint, and tests before reporting done.
+
 ## Data and money paths
 
 For billing, entitlements, auth, permissions, or deletion:

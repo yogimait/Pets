@@ -32,8 +32,8 @@ This machine has limited free RAM. If a Tauri build fails with `only metadata st
 4. Use the design tokens in `src/app.css`. No new colors, shadows, gradients, or font families without updating `docs/Design-System.md`.
 5. The desktop app has a real local backend: SQLite plus OpenCode sessions. The browser preview is read-only and cannot chat or run agents. Never claim a model ran, a task completed, or memory changed before the backend stored it.
 6. The orchestrator is a separate resizable Tauri window (`orchestrator`, 920x680 default, 640x480 floor). Pets are nine 56x80 transparent always-on-top windows plus one shared comic speech-bubble window; do not turn them back into a docked strip. Pets are draggable and use role-specific idle and working movement. Topbar Pets toggles show/hide and pauses motion; closing the main window exits the app and all pets; a second launch focuses the existing instance. Do not reintroduce a docked chat panel. The orchestrator visual language is the square black daily-tracker surface, not the charcoal panel system.
-7. No dependency without a stated reason. The renderer uses Svelte, Tailwind, Lucide, and the Tauri API only. Global shortcut and single-instance are the only Rust plugins.
-8. Keep Tauri capabilities at `core:default` until a command actually needs more.
+7. No dependency without a stated reason. The renderer uses Svelte, Tailwind, Lucide, and the Tauri API/plugins. Global shortcut, single-instance, and notification are the only Rust plugins.
+8. Keep Tauri capabilities minimal. The current set is `core:default` plus `notification:default` for desktop task notifications.
 9. Update the matching doc when architecture, data shape, tokens, or verification changes.
 10. The global policy is read verbatim from `%USERPROFILE%\.config\opencode\AGENTS.md`. Do not copy it into prompts. Agent prompts live in `prompts/agents/`; keep each agent's `promptId` aligned with the prompt frontmatter.
 11. OpenCode is the execution harness. The app is the control plane. Do not add a second model/tool loop or MCP client. Runtime calls belong in `src-tauri/src/opencode.rs`; the renderer talks only to app commands.

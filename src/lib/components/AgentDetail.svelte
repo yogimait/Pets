@@ -46,7 +46,7 @@
   <Sheet title={agent.name} eyebrow={agent.role} onclose={closeSheet}>
     <div class="space-y-5">
       <div class="flex items-start gap-3">
-        <Avatar name={agent.name} size="md" accent={agent.role === "Orchestrator"} />
+        <Avatar name={agent.name} agentId={agent.id} size="md" accent={agent.role === "Orchestrator"} />
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
             <StatusBadge status={agent.status} />

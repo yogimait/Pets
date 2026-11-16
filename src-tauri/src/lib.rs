@@ -597,6 +597,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(OpenCodeState::new())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -681,8 +682,11 @@ pub fn run() {
             workforce::workforce_reply_task_permission,
             workforce::workforce_run_task,
             workforce::workforce_accept_task,
+            workforce::workforce_reject_task,
+            workforce::workforce_update_task,
             workforce::workforce_abort_task,
             workforce::workforce_dreamer,
+            workforce::workforce_auto_memories,
             workforce::workforce_decide_proposal
         ])
         .run(tauri::generate_context!())

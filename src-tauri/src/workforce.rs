@@ -11,13 +11,14 @@ use std::time::{Duration, Instant};
 use tauri::State;
 use tokio::sync::Mutex as AsyncMutex;
 
-const CURRENT_SCHEMA: u64 = 3;
+const CURRENT_SCHEMA: u64 = 4;
 const DEFAULT_MODEL: &str = "opencode-go/deepseek-v4.1-flash";
 const ORCHESTRATOR_AGENT: &str = "orchestrator-workforce";
 const IDLE_TIMEOUT_SECS: u64 = 180;
 const RUNNING_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 const PROMPT_BUDGET: usize = 20_000;
 const MAX_AUTO_PERMISSIONS: usize = 16;
+const DEFAULT_MEMORY_THRESHOLD: f64 = 0.8;
 const KNOWN_MCP: &[&str] = &["playwright", "n8n-mcp", "stitch", "rea", "jev", "laya"];
 const MCP_STARTUP_WAIT: Duration = Duration::from_secs(20);
 
@@ -92,6 +93,7 @@ impl WorkforceStore {
         if migrate_snapshot(&mut value) {
             Self::write_locked(conn, &value)?;
         }
+        refresh_agent_stats(&mut value);
         Ok(Some(value))
     }
 
@@ -1105,6 +1107,138 @@ pub async fn workforce_accept_task(
             &format!("accepted {task_id}: {title}"),
             None,
         );
+        let project_tasks = value
+            .get("tasks")
+            .and_then(Value::as_array)
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .filter(|task| task.get("projectId").and_then(Value::as_str) == Some(&project_id))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !project_tasks.is_empty()
+            && project_tasks
+                .iter()
+                .all(|task| task.get("status").and_then(Value::as_str) == Some("done"))
+        {
+            let key = value
+                .get("projects")
+                .and_then(Value::as_array)
+                .and_then(|projects| {
+                    projects.iter().find(|project| {
+                        project.get("id").and_then(Value::as_str) == Some(&project_id)
+                    })
+                })
+                .and_then(|project| {
+                    project
+                        .get("key")
+                        .and_then(Value::as_str)
+                        .or_else(|| project.get("name").and_then(Value::as_str))
+                })
+                .unwrap_or(&project_id)
+                .to_string();
+            push_chat(
+                value,
+                "orchestrator",
+                &format!(
+                    "Project {key} complete: all {} tasks are done. Review finished work in the project files.",
+                    project_tasks.len()
+                ),
+                vec![json!({ "kind": "project", "id": project_id, "label": key.clone() })],
+            );
+            push_activity(
+                value,
+                "result",
+                "orchestrator",
+                Some(&project_id),
+                None,
+                &format!("project {key} complete"),
+                None,
+            );
+        }
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn workforce_reject_task(
+    store: State<'_, WorkforceStore>,
+    task_id: String,
+    note: String,
+) -> Result<Value, String> {
+    let store = store.inner();
+    let snapshot = snapshot_value(store)?;
+    let task = find_task(&snapshot, &task_id)
+        .ok_or_else(|| format!("Unknown task: {task_id}"))?;
+    if task.get("status").and_then(Value::as_str) != Some("review") {
+        return Err(format!("Task {task_id} is not in review."));
+    }
+    let note = note.trim();
+    if note.is_empty() {
+        return Err("Rejection note is required.".to_string());
+    }
+    store.update(|value| {
+        mark_blocked(value, &task_id, &format!("Rejected by operator: {note}"));
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn workforce_update_task(
+    store: State<'_, WorkforceStore>,
+    task_id: String,
+    title: String,
+    description: String,
+    acceptance: String,
+    priority: String,
+    owner_id: String,
+) -> Result<Value, String> {
+    let store = store.inner();
+    let snapshot = snapshot_value(store)?;
+    let task = find_task(&snapshot, &task_id)
+        .ok_or_else(|| format!("Unknown task: {task_id}"))?;
+    if matches!(
+        task.get("status").and_then(Value::as_str),
+        Some("running") | Some("done")
+    ) {
+        return Err(format!("Task {task_id} cannot be edited in its current state."));
+    }
+    if title.trim().is_empty() || description.trim().is_empty() || acceptance.trim().is_empty() {
+        return Err("Title, description, and acceptance are required.".to_string());
+    }
+    if !matches!(priority.as_str(), "low" | "normal" | "high" | "critical") {
+        return Err("Priority must be low, normal, high, or critical.".to_string());
+    }
+    if !agent_exists(&snapshot, &owner_id) {
+        return Err(format!("Unknown owner: {owner_id}"));
+    }
+    store.update(|value| {
+        let (old_owner, project_id, old_title) = task_meta(value, &task_id);
+        if let Some(task) = find_task_mut(value, &task_id) {
+            task["title"] = json!(title.trim());
+            task["description"] = json!(description.trim());
+            task["acceptance"] = json!(acceptance.trim());
+            task["priority"] = json!(priority);
+            task["ownerId"] = json!(owner_id);
+            task["updatedAt"] = json!(now_ms());
+            if task.get("status").and_then(Value::as_str) == Some("review") {
+                task["status"] = json!("blocked");
+                append_note(task, "Task edited after review; previous result needs a new run.");
+            }
+        }
+        if old_owner != owner_id {
+            clear_agent_current_task(value, &old_owner, &task_id);
+        }
+        push_activity(
+            value,
+            "status",
+            "orchestrator",
+            Some(&project_id),
+            Some(&task_id),
+            &format!("edited task {task_id}: {old_title}"),
+            None,
+        );
         Ok(())
     })
 }
@@ -1227,12 +1361,19 @@ pub async fn workforce_dreamer(
         "parentUpdate": "none"
     });
 
+    let threshold = memory_threshold();
+    let mut auto_approved = 0usize;
+    let mut auto_rejected = 0usize;
+
     store.update(|value| {
         if let Some(memory) = value.get_mut("proposals").and_then(Value::as_array_mut) {
             for proposal in &proposals {
                 memory.push(proposal.clone());
             }
         }
+        let (approved, rejected) = auto_decide_pending(value, Some(&project_id), threshold, at);
+        auto_approved = approved;
+        auto_rejected = rejected;
         if let Some(runs) = value.get_mut("dreamerRuns").and_then(Value::as_array_mut) {
             runs.push(run.clone());
         }
@@ -1243,12 +1384,100 @@ pub async fn workforce_dreamer(
             Some(&project_id),
             None,
             &format!(
-                "proposed {} memory {}",
+                "proposed {} memory {}; auto-approved {auto_approved} at {:.0}%+, rejected {auto_rejected}",
                 proposals.len(),
-                if proposals.len() == 1 { "entry" } else { "entries" }
+                if proposals.len() == 1 { "entry" } else { "entries" },
+                threshold * 100.0
             ),
             findings.first().map(String::as_str),
         );
+        Ok(())
+    })
+}
+
+fn auto_decide_pending(
+    value: &mut Value,
+    project_id: Option<&str>,
+    threshold: f64,
+    at: u64,
+) -> (usize, usize) {
+    let mut approved = 0usize;
+    let mut rejected = 0usize;
+    let mut approved_ids = Vec::new();
+    if let Some(proposals) = value.get_mut("proposals").and_then(Value::as_array_mut) {
+        for proposal in proposals.iter_mut() {
+            if proposal.get("status").and_then(Value::as_str) != Some("pending") {
+                continue;
+            }
+            if let Some(project_id) = project_id {
+                if proposal.get("projectId").and_then(Value::as_str) != Some(project_id) {
+                    continue;
+                }
+            }
+            let id = proposal
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let confidence = proposal
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let status = if confidence >= threshold {
+                "approved"
+            } else {
+                "rejected"
+            };
+            proposal["status"] = json!(status);
+            proposal["decidedAt"] = json!(at);
+            if status == "approved" {
+                approved_ids.push(id);
+                approved += 1;
+            } else {
+                rejected += 1;
+            }
+        }
+    }
+    for id in approved_ids {
+        if let Some(proposal) = value
+            .get("proposals")
+            .and_then(Value::as_array)
+            .and_then(|proposals| {
+                proposals
+                    .iter()
+                    .find(|proposal| proposal.get("id").and_then(Value::as_str) == Some(id.as_str()))
+            })
+            .cloned()
+        {
+            apply_memory(value, &proposal, at);
+        }
+    }
+    (approved, rejected)
+}
+
+#[tauri::command]
+pub async fn workforce_auto_memories(
+    store: State<'_, WorkforceStore>,
+) -> Result<Value, String> {
+    let store = store.inner();
+    let threshold = memory_threshold();
+    let at = now_ms();
+    store.update(|value| {
+        let (approved, rejected) = auto_decide_pending(value, None, threshold, at);
+        if approved + rejected > 0 {
+            push_activity(
+                value,
+                "memory",
+                "dreamer",
+                None,
+                None,
+                &format!(
+                    "auto-reviewed memory proposals at {:.0}%: approved {approved}, rejected {rejected}",
+                    threshold * 100.0
+                ),
+                None,
+            );
+        }
         Ok(())
     })
 }
@@ -1746,6 +1975,59 @@ fn is_seed_task_id(task_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn refresh_agent_stats(snapshot: &mut Value) {
+    let tasks = snapshot
+        .get("tasks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let Some(agents) = snapshot.get_mut("agents").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for agent in agents {
+        let Some(id) = agent.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let owned: Vec<&Value> = tasks
+            .iter()
+            .filter(|task| task.get("ownerId").and_then(Value::as_str) == Some(id))
+            .collect();
+        let done = owned
+            .iter()
+            .filter(|task| task.get("status").and_then(Value::as_str) == Some("done"))
+            .count();
+        let blocked = owned
+            .iter()
+            .filter(|task| task.get("status").and_then(Value::as_str) == Some("blocked"))
+            .count();
+        let attempts = done + blocked;
+        agent["tasksCompleted"] = json!(done);
+        agent["successRate"] = json!(if attempts == 0 {
+            0
+        } else {
+            ((done as f64 / attempts as f64) * 100.0).round() as u64
+        });
+        if let Some(last) = owned.iter().filter_map(|task| task.get("updatedAt").and_then(Value::as_u64)).max() {
+            agent["lastActiveAt"] = json!(last);
+        }
+    }
+}
+
+fn pet_display_name(agent_id: &str) -> Option<&'static str> {
+    match agent_id {
+        "orchestrator" => Some("Micheal"),
+        "dreamer" => Some("Holly"),
+        "forge" => Some("Dwight"),
+        "pixel" => Some("Jim"),
+        "scout" => Some("Ryan"),
+        "voice" => Some("Andy"),
+        "probe" => Some("Erin"),
+        "iris" => Some("Pam"),
+        "verity" => Some("Stanley"),
+        _ => None,
+    }
+}
+
 fn migrate_snapshot(snapshot: &mut Value) -> bool {
     let version = snapshot
         .get("schemaVersion")
@@ -1753,6 +2035,20 @@ fn migrate_snapshot(snapshot: &mut Value) -> bool {
         .unwrap_or(1);
     if version >= CURRENT_SCHEMA {
         return false;
+    }
+
+    if version < 4 {
+        if let Some(agents) = snapshot.get_mut("agents").and_then(Value::as_array_mut) {
+            for agent in agents {
+                if let Some(name) = agent
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(pet_display_name)
+                {
+                    agent["name"] = json!(name);
+                }
+            }
+        }
     }
 
     if version < 3 {
@@ -2110,7 +2406,9 @@ fn plan_prompt(snapshot: &Value, project: &Value, goal: &str) -> String {
         goal.trim()
     };
     format!(
-        "You are the workforce orchestrator planning work for one project.\n\n{context}\n\nGoal from the user:\n{goal}\n\nExisting tasks:\n{titles}\n\nAvailable owner ids: {owners}\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"summary\":\"one or two sentences\",\"tasks\":[{{\"title\":\"short title\",\"description\":\"one deliverable\",\"ownerId\":\"pixel\",\"priority\":\"normal\",\"acceptance\":\"how to verify\",\"dependsOn\":[0]}}]}}\n\nRules:\n- One deliverable per task.\n- ownerId must be one of the available owner ids.\n- priority is low, normal, high, or critical.\n- dependsOn contains zero-based indices of earlier tasks in this array, or an empty array.\n- acceptance states the check that proves the task is done.",
+        "You are the workforce orchestrator planning work for one project.\n\n{context}\n\nGoal from the user:\n{goal}\n\nExisting tasks:\n{titles}\n\nAvailable owner ids: {owners}\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"summary\":\"one or two sentences\",\"tasks\":[{{\"title\":\"short title\",\"description\":\"one deliverable\",\"ownerId\":\"pixel\",\"priority\":\"normal\",\"acceptance\":\"how to verify\",\"dependsOn\":[0]}}]}}\n\nRules:\n- One deliverable per task.\n- ownerId must be one of the available owner ids.\n- priority is low, normal, high, or critical.\n- dependsOn contains zero-based indices of earlier tasks in this array, or an empty array.\n- acceptance states the check that proves the task is done.
+- For implementation plans, require an explicit file/component structure, runnable build/test commands, and a final independent quality/audit gate.
+- Do not plan a single monolithic source file when the project needs components or modules.",
         context = project_context(project)
     )
 }
@@ -2301,7 +2599,7 @@ fn task_prompt(snapshot: &Value, project: &Value, task: &Value, agent_id: &str) 
         .and_then(Value::as_str)
         .unwrap_or("No acceptance criteria recorded.");
     format!(
-        "# Global policy\n\n{global}\n\n# Project policy\n\n{project_policy}\n\n# Agent policy\n\n{agent_policy}\n\n# Task\n\nid: {id}\ntitle: {title}\ndescription: {description}\nacceptance: {acceptance}\n\n# Approved project memory\n\n{memory}\n\n# DevVault\n\nVault: {vault}\nHome: {home}\nProject hub: {hub}\n\nThe global policy requires DevVault updates after meaningful work. If this task changes architecture, behavior, APIs, data, configuration, verified commands, or reusable components, update the project hub note, its row in DevVault/Home.md, and the matching project docs before finishing. Read the existing note first; link to project docs instead of copying them. Do not touch DevVault for read-only or no-change work.\n\n# Handoff contract\n\n{handoff}\n\nWork only inside {repo}. Report what changed, the exact checks run, and what was not checked.",
+        "# Global policy\n\n{global}\n\n# Project policy\n\n{project_policy}\n\n# Agent policy\n\n{agent_policy}\n\n# Task\n\nid: {id}\ntitle: {title}\ndescription: {description}\nacceptance: {acceptance}\n\n# Approved project memory\n\n{memory}\n\n# Quality gate\n\nRead the existing project structure before editing. Preserve its conventions. For application code, use a real component/module structure instead of putting everything in one source file. Add the smallest useful test for non-trivial logic. Run the project's typecheck, lint, tests, and build when available. Do not leave placeholders, dead files, fake success paths, or unexplained dependencies. In the handoff, list the files created or changed and the exact checks run.\n\n# DevVault\n\nVault: {vault}\nHome: {home}\nProject hub: {hub}\n\nThe global policy requires DevVault updates after meaningful work. If this task changes architecture, behavior, APIs, data, configuration, verified commands, or reusable components, update the project hub note, its row in DevVault/Home.md, and the matching project docs before finishing. Read the existing note first; link to project docs instead of copying them. Do not touch DevVault for read-only or no-change work.\n\n# Handoff contract\n\n{handoff}\n\nWork only inside {repo}. Report what changed, the exact checks run, and what was not checked.",
         global = none_if_empty(&global_policy),
         project_policy = none_if_empty(&project_policy),
         agent_policy = none_if_empty(&agent_policy),
@@ -3040,6 +3338,14 @@ fn last_assistant_text(value: &Value) -> Option<String> {
     None
 }
 
+fn memory_threshold() -> f64 {
+    std::env::var("AGENT_BOTS_MEMORY_THRESHOLD")
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| (0.0..=1.0).contains(value))
+        .unwrap_or(DEFAULT_MEMORY_THRESHOLD)
+}
+
 fn model_config() -> Result<(String, String), String> {
     let raw = std::env::var("AGENT_BOTS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     split_model(&raw)
@@ -3069,6 +3375,34 @@ mod tests {
         assert!(message.contains("OpenCode"));
         let generic = provider_failure_message("p", "m", "connection refused");
         assert!(generic.contains("Could not start model p/m"));
+    }
+
+    #[test]
+    fn auto_memory_threshold_approves_high_confidence_and_rejects_low() {
+        let mut snapshot = json!({
+            "proposals": [
+                { "id": "p1", "projectId": "core", "status": "pending", "confidence": 0.9, "action": "add", "title": "Keep", "kind": "decision", "content": "yes" },
+                { "id": "p2", "projectId": "core", "status": "pending", "confidence": 0.7, "action": "add", "title": "Drop", "kind": "decision", "content": "no" }
+            ],
+            "memory": []
+        });
+        let (approved, rejected) = auto_decide_pending(&mut snapshot, Some("core"), 0.8, 10);
+        assert_eq!((approved, rejected), (1, 1));
+        assert_eq!(snapshot["proposals"][0]["status"], "approved");
+        assert_eq!(snapshot["proposals"][1]["status"], "rejected");
+        assert_eq!(snapshot["memory"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn schema_migration_updates_agent_display_names() {
+        let mut snapshot = json!({
+            "schemaVersion": 3,
+            "agents": [{ "id": "orchestrator", "name": "Orchestrator" }],
+            "tasks": []
+        });
+        assert!(migrate_snapshot(&mut snapshot));
+        assert_eq!(snapshot["agents"][0]["name"], "Micheal");
+        assert_eq!(snapshot["schemaVersion"], CURRENT_SCHEMA);
     }
 
     #[test]

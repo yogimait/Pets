@@ -15,7 +15,7 @@
 </script>
 
 {#snippet content()}
-  <Avatar name={actor?.name ?? "System"} size="xs" />
+  <Avatar name={actor?.name ?? "System"} agentId={actor?.id} size="xs" />
   <div class="min-w-0 flex-1">
     <p class="text-[11.5px] leading-snug text-ink-2">
       <span class="text-ink">{actor?.name ?? event.actorId}</span>

@@ -55,17 +55,17 @@
   <div>
     <h1 class="text-[18px] font-medium tracking-[-0.01em] text-ink">Memory</h1>
     <p class="mt-1 text-[11.5px] text-ink-3">
-      Dreamer keeps decisions, references, and results that outlive a single task.
+      Holly keeps decisions, references, and results that outlive a single task.
     </p>
   </div>
 
-  <Panel title="Dreamer" subtitle="Memory agent · on demand">
+  <Panel title="Holly" subtitle={dreamerBusy || app.workforceBusy ? "Dreamer · running" : "Dreamer · on demand"}>
     {#snippet action()}
       {#if live}
         <div class="flex items-center gap-1.5">
           <select
             bind:value={dreamerProject}
-            aria-label="Dreamer project"
+            aria-label="Holly project"
             class="h-6 rounded border border-line-soft bg-surface px-1 text-[10px] text-ink-2 focus:border-accent/40 focus:outline-none"
           >
             {#each snapshot.projects as project (project.id)}<option value={project.id}>{project.key}</option>{/each}
@@ -82,7 +82,7 @@
             disabled={dreamerBusy || app.workforceBusy}
             class="rounded border border-line-soft px-1.5 py-0.5 text-[10px] text-ink-3 transition-colors hover:text-ink disabled:opacity-40"
           >
-            {dreamerBusy || app.workforceBusy ? "Running" : "Run Dreamer"}
+            {dreamerBusy || app.workforceBusy ? "Running" : "Run Holly"}
           </button>
         </div>
       {:else}
@@ -109,7 +109,7 @@
     </div>
     <p class="mt-3 border-t border-line-soft pt-2.5 text-[10.5px] leading-relaxed text-ink-4">
       {live
-        ? "Dreamer reads existing task and memory evidence and proposes entries. Nothing reaches memory until you approve a proposal."
+        ? "Holly runs on demand against real task and file evidence. Proposals at 80% confidence or higher are approved automatically; lower-confidence proposals are rejected automatically. Set AGENT_BOTS_MEMORY_THRESHOLD to change the cutoff."
         : "Entries are read-only in this browser preview. Proposals can be approved or rejected for the session only; no memory write exists without the desktop backend."}
     </p>
     {#if app.workforceError}
@@ -142,7 +142,7 @@
       {/if}
     </Panel>
 
-    <Panel title="Dreamer runs" subtitle="Latest consolidation passes" padded={false}>
+    <Panel title="Holly runs" subtitle="Latest consolidation passes" padded={false}>
       {#each runs as run (run.id)}
         <div class="border-b border-line-soft px-3.5 py-2.5 last:border-b-0">
           <div class="flex items-center gap-2">

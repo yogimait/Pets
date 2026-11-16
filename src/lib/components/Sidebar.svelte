@@ -61,9 +61,9 @@
       <div class="flex items-center justify-between">
         <span class="flex items-center gap-1.5 text-[11px] text-ink-2">
           <Brain size={12} strokeWidth={1.6} class="text-ink-3" />
-          Dreamer
+          Holly
         </span>
-        <span class="text-[10px] text-ink-4">idle</span>
+        <span class="text-[10px] text-ink-4">{app.dreamerRunning ? "running" : "idle"}</span>
       </div>
       <p class="mt-1.5 font-mono text-[10.5px] text-ink-3">{metrics?.memoryEntries ?? 0} entries · {projectCount} projects</p>
       <p class="mt-0.5 text-[10px] text-ink-4">last write {lastMemory ? timeAgo(lastMemory) : "none"}</p>

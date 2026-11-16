@@ -5,7 +5,7 @@ export const agents: Agent[] = [
   {
     id: "orchestrator",
     opencodeAgentId: "orchestrator-workforce",
-    name: "Orchestrator",
+    name: "Micheal",
     role: "Orchestrator",
     description:
       "Primary interface for the workforce. Plans work, splits it into tasks, delegates to specialists, and reports progress.",
@@ -25,7 +25,7 @@ export const agents: Agent[] = [
   {
     id: "dreamer",
     opencodeAgentId: "dreamer",
-    name: "Dreamer",
+    name: "Holly",
     role: "Memory",
     description:
       "Maintains durable context across projects: decisions, references, execution results, and conventions the workforce should not relearn.",
@@ -45,7 +45,7 @@ export const agents: Agent[] = [
   {
     id: "forge",
     opencodeAgentId: "forge",
-    name: "Forge",
+    name: "Dwight",
     role: "Backend Developer",
     description:
       "Implements services, data models, migrations, and integrations. Owns correctness on money, auth, and persistence paths.",
@@ -65,7 +65,7 @@ export const agents: Agent[] = [
   {
     id: "pixel",
     opencodeAgentId: "pixel",
-    name: "Pixel",
+    name: "Jim",
     role: "Frontend Developer",
     description:
       "Builds the desktop interface: layout, components, state, and interaction details. Keeps density and accessibility intact.",
@@ -85,7 +85,7 @@ export const agents: Agent[] = [
   {
     id: "scout",
     opencodeAgentId: "scout",
-    name: "Scout",
+    name: "Ryan",
     role: "Research",
     description:
       "Collects evidence, compares options, and writes short memos. Does not make product decisions on its own.",
@@ -105,7 +105,7 @@ export const agents: Agent[] = [
   {
     id: "voice",
     opencodeAgentId: "voice",
-    name: "Voice",
+    name: "Andy",
     role: "Marketing",
     description:
       "Writes positioning, launch copy, and announcements. Waits for the product claim to be settled before writing around it.",
@@ -125,7 +125,7 @@ export const agents: Agent[] = [
   {
     id: "probe",
     opencodeAgentId: "probe",
-    name: "Probe",
+    name: "Erin",
     role: "Testing",
     description:
       "Owns verification: contract tests, regression checks, load runs, and release gates. Reports failures with a reproduction.",
@@ -145,7 +145,7 @@ export const agents: Agent[] = [
   {
     id: "iris",
     opencodeAgentId: "iris",
-    name: "Iris",
+    name: "Pam",
     role: "UI/UX Designer",
     description:
       "Designs flows, screen structure, states, and interaction details. Produces specs the frontend agent can build without guessing.",
@@ -165,7 +165,7 @@ export const agents: Agent[] = [
   {
     id: "verity",
     opencodeAgentId: "verity",
-    name: "Verity",
+    name: "Stanley",
     role: "Auditing Engineer",
     description:
       "Independent risk review for security, permissions, data integrity, dependencies, and release readiness. Read-only by default.",

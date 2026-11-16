@@ -36,22 +36,23 @@ The higher layer wins. A project may extend or tighten the global rules, never r
 
 | App agent | OpenCode id |
 |---|---|
-| Orchestrator | `orchestrator-workforce` |
-| Dreamer | `dreamer` |
-| Pixel | `pixel` |
-| Forge | `forge` |
-| Scout | `scout` |
-| Voice | `voice` |
-| Probe | `probe` |
-| Iris | `iris` |
-| Verity | `verity` |
+| Micheal · Orchestrator | `orchestrator-workforce` |
+| Holly · Memory | `dreamer` |
+| Jim · Frontend | `pixel` |
+| Dwight · Backend | `forge` |
+| Ryan · Research | `scout` |
+| Andy · Marketing | `voice` |
+| Erin · Testing | `probe` |
+| Pam · UI/UX | `iris` |
+| Stanley · Auditing | `verity` |
 
 Generated files are written to both `.opencode/agents/` and the global `%USERPROFILE%\.config\opencode\agent/`. The global copy is what makes the same app agents available in every selected project. The release binary embeds these files and installs missing or Agent-Bots-generated copies on startup. Existing global files without the Agent Bots marker are not overwritten. They set:
 
 - `mode: primary`
 - the configured model, default `opencode-go/deepseek-v4.1-flash`; set `AGENT_BOTS_AGENT_MODEL` before sync to change it
 - `steps: 24`
-- permissions that allow MCP tools and the DevVault external directory, and deny subagents, questions, `.env` reads, other external directories, and obvious destructive shell commands
+- permissions that allow workspace tools and MCP in specialist sessions, and deny subagents, questions, `.env` reads, other external directories, and obvious destructive shell commands
+- the orchestrator can read files and run non-destructive shell commands; it cannot edit files or accept tasks
 - the original role body plus a small app runtime note for the orchestrator
 
 Run `npm run sync:agents` after editing a prompt. Run `npm run check:agents` to validate.
@@ -72,6 +73,10 @@ working directory reminder
 ```
 
 The prompt is sent to an OpenCode session owned by the mapped agent. The agent's own OpenCode permissions still apply.
+
+## Code quality gate
+
+The frontend, backend, and task prompts now require an explicit component/module structure, runnable typecheck/tests/build, and a final independent quality/audit gate for implementation work. The auditing role reviews structure, duplication, dead code, testability, and convention drift in addition to security.
 
 ## Boundaries
 
@@ -94,7 +99,7 @@ The prompt is sent to an OpenCode session owned by the mapped agent. The agent's
 - Agent sync and validation scripts.
 - Task routing by owner id.
 - Prompt preview in Agent detail.
-- 28 Node tests and 24 Rust tests.
+- 28 Node tests and 26 Rust tests.
 
 ## Pending
 

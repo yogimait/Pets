@@ -2,7 +2,7 @@
   import Avatar from "../components/Avatar.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
   import { opencodeAgentId, taskById } from "../selectors.ts";
-  import { openSheet } from "../state/app.svelte.ts";
+  import { app, openSheet } from "../state/app.svelte.ts";
   import { timeAgo } from "../format.ts";
   import type { AgentStatus, Snapshot } from "../types.ts";
 
@@ -61,13 +61,13 @@
       >
         <div class="flex items-start justify-between gap-2">
           <div class="flex min-w-0 items-center gap-2.5">
-            <Avatar name={agent.name} size="md" accent={agent.role === "Orchestrator"} />
+            <Avatar name={agent.name} agentId={agent.id} size="md" accent={agent.role === "Orchestrator"} />
             <div class="min-w-0">
               <p class="truncate text-[13px] font-medium text-ink">{agent.name}</p>
               <p class="truncate text-[10.5px] text-ink-3">{agent.role}</p>
             </div>
           </div>
-          <StatusBadge status={agent.status} />
+          <StatusBadge status={agent.id === "dreamer" && app.dreamerRunning ? "active" : agent.status} />
         </div>
 
         <p class="mt-3 line-clamp-2 min-h-[32px] text-[11px] leading-relaxed text-ink-3">{agent.description}</p>
