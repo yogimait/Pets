@@ -74,4 +74,6 @@ Review and verification
 The plan must use separate UI/UX, backend, frontend, testing, and audit tasks. A task is not done because files exist; it is done only when its acceptance check passes. The final audit must inspect component structure, duplication, error handling, data persistence, and the difference between claimed and actually run checks.
 ```
 
+Before planning, if `D:\Projects\system-design-all-in-one` is available, use its HLD, LLD, DSA, functional, and non-functional requirement material as a reference. Do not copy its code or assume its stack; extract only relevant architecture and data-design guidance.
+
 Expected result: a local app that can be started from its README, with a working API, a structured React frontend, real persistence, passing tests, and a final audit that names any remaining risk.

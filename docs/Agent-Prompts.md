@@ -99,7 +99,7 @@ The frontend, backend, and task prompts now require an explicit component/module
 - Agent sync and validation scripts.
 - Task routing by owner id.
 - Prompt preview in Agent detail.
-- 28 Node tests and 26 Rust tests.
+- 28 Node tests and 27 Rust tests.
 
 ## Pending
 
