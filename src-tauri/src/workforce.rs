@@ -1419,10 +1419,6 @@ fn auto_decide_pending(
                 .get("action")
                 .and_then(Value::as_str)
                 .unwrap_or("add");
-            // Destructive memory changes always stay with the operator.
-            if matches!(action, "delete" | "merge") {
-                continue;
-            }
             let id = proposal
                 .get("id")
                 .and_then(Value::as_str)
@@ -1432,7 +1428,11 @@ fn auto_decide_pending(
                 .get("confidence")
                 .and_then(Value::as_f64)
                 .unwrap_or(0.0);
-            let status = if confidence >= threshold {
+            // Destructive changes are never auto-applied, but they are also
+            // never left waiting for an operator in autonomous mode.
+            let status = if matches!(action, "delete" | "merge") {
+                "rejected"
+            } else if confidence >= threshold {
                 "approved"
             } else {
                 "rejected"
@@ -3397,10 +3397,10 @@ mod tests {
             "memory": []
         });
         let (approved, rejected) = auto_decide_pending(&mut snapshot, Some("core"), 0.8, 10);
-        assert_eq!((approved, rejected), (1, 1));
+        assert_eq!((approved, rejected), (1, 2));
         assert_eq!(snapshot["proposals"][0]["status"], "approved");
         assert_eq!(snapshot["proposals"][1]["status"], "rejected");
-        assert_eq!(snapshot["proposals"][2]["status"], "pending");
+        assert_eq!(snapshot["proposals"][2]["status"], "rejected");
         assert_eq!(snapshot["memory"].as_array().unwrap().len(), 1);
     }
 
