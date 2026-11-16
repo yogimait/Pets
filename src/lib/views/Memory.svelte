@@ -109,7 +109,7 @@
     </div>
     <p class="mt-3 border-t border-line-soft pt-2.5 text-[10.5px] leading-relaxed text-ink-4">
       {live
-        ? "Holly runs on demand against real task and file evidence. Proposals at 80% confidence or higher are approved automatically; lower-confidence proposals are rejected automatically. Set AGENT_BOTS_MEMORY_THRESHOLD to change the cutoff."
+        ? "Holly runs on demand against real task and file evidence. Safe add/update proposals at 80% or higher are approved automatically; lower-confidence proposals are rejected. Delete/merge proposals stay pending for your decision. Set AGENT_BOTS_MEMORY_THRESHOLD to change the cutoff."
         : "Entries are read-only in this browser preview. Proposals can be approved or rejected for the session only; no memory write exists without the desktop backend."}
     </p>
     {#if app.workforceError}

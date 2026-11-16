@@ -168,8 +168,9 @@ Dreamer runs on demand, not concurrently with specialist tasks. It reads the sel
 
 When a Dreamer run finishes:
 
-- proposals with confidence **at or above 80%** are approved and applied automatically
+- `add` and `update` proposals at **80% confidence or higher** are approved and applied automatically
 - proposals below 80% are rejected automatically
+- `delete` and `merge` proposals always remain pending for an operator decision; destructive memory changes are never auto-applied
 - the run and the auto-decision counts appear in Activity
 - pending proposals from earlier runs are auto-reviewed the same way on app start and on the next Dreamer run
 

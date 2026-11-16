@@ -1224,6 +1224,7 @@ pub async fn workforce_update_task(
             task["updatedAt"] = json!(now_ms());
             if task.get("status").and_then(Value::as_str) == Some("review") {
                 task["status"] = json!("blocked");
+                task["result"] = Value::Null;
                 append_note(task, "Task edited after review; previous result needs a new run.");
             }
         }
@@ -1413,6 +1414,14 @@ fn auto_decide_pending(
                 if proposal.get("projectId").and_then(Value::as_str) != Some(project_id) {
                     continue;
                 }
+            }
+            let action = proposal
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("add");
+            // Destructive memory changes always stay with the operator.
+            if matches!(action, "delete" | "merge") {
+                continue;
             }
             let id = proposal
                 .get("id")
@@ -3382,7 +3391,8 @@ mod tests {
         let mut snapshot = json!({
             "proposals": [
                 { "id": "p1", "projectId": "core", "status": "pending", "confidence": 0.9, "action": "add", "title": "Keep", "kind": "decision", "content": "yes" },
-                { "id": "p2", "projectId": "core", "status": "pending", "confidence": 0.7, "action": "add", "title": "Drop", "kind": "decision", "content": "no" }
+                { "id": "p2", "projectId": "core", "status": "pending", "confidence": 0.7, "action": "add", "title": "Drop", "kind": "decision", "content": "no" },
+                { "id": "p3", "projectId": "core", "status": "pending", "confidence": 0.99, "action": "delete", "title": "Delete safely", "kind": "decision", "content": "no" }
             ],
             "memory": []
         });
@@ -3390,6 +3400,7 @@ mod tests {
         assert_eq!((approved, rejected), (1, 1));
         assert_eq!(snapshot["proposals"][0]["status"], "approved");
         assert_eq!(snapshot["proposals"][1]["status"], "rejected");
+        assert_eq!(snapshot["proposals"][2]["status"], "pending");
         assert_eq!(snapshot["memory"].as_array().unwrap().len(), 1);
     }
 

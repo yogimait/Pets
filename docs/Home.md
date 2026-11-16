@@ -54,6 +54,7 @@ See [[First-Draft]] for the operator walkthrough.
 
 - [[Architecture]] - control plane, OpenCode bridge, scheduler, security.
 - [[Workflow]] - task lifecycle, chat vs Plan, approvals, progress, models.
+- [[Full-Stack-Test-Prompt]] - a complete project prompt for testing the harness end to end.
 - [[First-Draft]] - how to operate the current build.
 - [[Agent-Prompts]] - role prompts, sync, routing, policy precedence.
 - [[Data-Model]] - SQLite snapshot, entities, invariants.

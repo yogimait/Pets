@@ -128,15 +128,15 @@ The app does not reimplement skills or MCP. The OpenCode child process loads the
 
 | App agent | OpenCode agent |
 |---|---|
-| Micheal · Orchestrator | `orchestrator-workforce` |
-| Holly · Memory | `dreamer` |
-| Jim · Frontend | `pixel` |
-| Dwight · Backend | `forge` |
-| Ryan · Research | `scout` |
-| Andy · Marketing | `voice` |
-| Erin · Testing | `probe` |
-| Pam · UI/UX | `iris` |
-| Stanley · Auditing | `verity` |
+| Micheal ï¿½ Orchestrator | `orchestrator-workforce` |
+| Holly ï¿½ Memory | `dreamer` |
+| Jim ï¿½ Frontend | `pixel` |
+| Dwight ï¿½ Backend | `forge` |
+| Ryan ï¿½ Research | `scout` |
+| Andy ï¿½ Marketing | `voice` |
+| Erin ï¿½ Testing | `probe` |
+| Pam ï¿½ UI/UX | `iris` |
+| Stanley ï¿½ Auditing | `verity` |
 
 Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` validates the generated files. The source prompt remains the single editable source.
 
@@ -161,7 +161,7 @@ Reference chips open the linked task, agent, or project in the main window. The 
 
 ## Memory
 
-Dreamer reads project context, review/done task results, existing memory, project `AGENTS.md`/`README.md`/`docs/*.md`, role prompts, and the project's DevVault hub note. It returns JSON findings and proposals. Proposals are auto-decided at the configured confidence threshold: default 80% or higher is approved and applied; below 80% is rejected. `AGENT_BOTS_MEMORY_THRESHOLD` changes the cutoff. Pending proposals are auto-reviewed on app start and on the next Dreamer run. Task prompts include the latest eight approved entries for that project.
+Dreamer reads project context, review/done task results, existing memory, project `AGENTS.md`/`README.md`/`docs/*.md`, role prompts, and the project's DevVault hub note. It returns JSON findings and proposals. Proposals are auto-decided at the configured confidence threshold: default 80% or higher is approved and applied; below 80% is rejected. `add` and `update` are eligible for automation; `delete` and `merge` always remain pending for manual approval. `AGENT_BOTS_MEMORY_THRESHOLD` changes the cutoff. Pending safe proposals are auto-reviewed on app start and on the next Dreamer run. Task prompts include the latest eight approved entries for that project.
 
 ## Security posture
 
