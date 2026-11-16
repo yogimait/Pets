@@ -28,6 +28,7 @@ import {
   type TaskInput,
 } from "../workforce.ts";
 import type { View } from "../nav.ts";
+import { ensureAutostart } from "../autostart.ts";
 import { notify } from "../notifications.ts";
 
 export type SheetKind = "agent" | "project" | "project-new" | "task" | "memory" | "proposal";
@@ -73,6 +74,7 @@ async function loadInitialSnapshot(): Promise<Snapshot> {
 export async function init(): Promise<void> {
   if (started) return;
   started = true;
+  void ensureAutostart();
   try {
     const snapshot = await loadInitialSnapshot();
     app.snapshot = snapshot;

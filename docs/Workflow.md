@@ -209,7 +209,7 @@ The default phase limit is **6** and can be set from 1 to 20 when creating the p
 
 ## Always-on operation
 
-The app registers itself for Windows login autostart through the Tauri autostart plugin. While the process is running it:
+The app registers itself for Windows login autostart through the Tauri autostart plugin. The **Settings → Startup** toggle can disable or re-enable it. While the process is running it:
 
 1. starts queued tasks automatically
 2. auto-approves tool permission requests within the agent policy

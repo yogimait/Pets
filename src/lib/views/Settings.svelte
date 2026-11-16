@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Panel from "../components/Panel.svelte";
   import StatusBadge from "../components/StatusBadge.svelte";
+  import { autostartEnabled, setAutostart } from "../autostart.ts";
   import Avatar from "../components/Avatar.svelte";
   import RuntimePanel from "../components/RuntimePanel.svelte";
   import { opencodeAgentId } from "../selectors.ts";
@@ -13,6 +15,26 @@
   let { snapshot }: { snapshot: Snapshot } = $props();
 
   const live = workforceAvailable();
+  let autostart = $state(false);
+  let autostartBusy = $state(false);
+
+  onMount(() => {
+    if (!live) return;
+    void autostartEnabled()
+      .then((enabled) => (autostart = enabled))
+      .catch((error) => console.warn("autostart status unavailable", error));
+  });
+
+  async function toggleAutostart() {
+    autostartBusy = true;
+    try {
+      autostart = await setAutostart(!autostart);
+    } catch (error) {
+      console.warn("autostart toggle unavailable", error);
+    } finally {
+      autostartBusy = false;
+    }
+  }
 
   function changePolicyProject(event: Event) {
     const select = event.currentTarget as HTMLSelectElement;
@@ -79,6 +101,29 @@
           : "the browser preview cannot start models."}
       </li>
     </ul>
+  </Panel>
+
+  <Panel title="Startup" subtitle="Open with Windows">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p class="text-[11.5px] text-ink">Open Agent Bots when I sign in</p>
+        <p class="mt-1 max-w-[560px] text-[10.5px] leading-relaxed text-ink-3">
+          {live
+            ? "The first app launch enables login startup unless you turn it off here. Windows registers the installed executable in your user startup list."
+            : "Startup registration requires the desktop app."}
+        </p>
+      </div>
+      <label class="flex items-center gap-2 text-[11px] text-ink-2">
+        <input
+          type="checkbox"
+          checked={autostart}
+          disabled={!live || autostartBusy}
+          onchange={toggleAutostart}
+          class="size-3.5 accent-[#8ca6c0]"
+        />
+        <span>{autostart ? "Enabled" : "Disabled"}</span>
+      </label>
+    </div>
   </Panel>
 
   <Panel title="Notifications" subtitle="Windows desktop alerts">

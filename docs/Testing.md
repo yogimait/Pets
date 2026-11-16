@@ -307,7 +307,7 @@ Opened the pets from the main topbar.
 - accepting a final task appends a project-complete report and sends the final desktop notification
 - manual review controls remain available as a fallback: Accept result, Reject result, Edit task
 - edit opens title, description, acceptance, priority, and owner fields; cancel leaves the task unchanged
-- Windows Run key contains Agent Bots pointing at the release executable (login autostart)
+- Windows Run key contains Agent Bots pointing at the release executable (login autostart); Settings → Startup toggles it and the first launch enables it unless turned off
 - current project completion notification count and project-stopped detection were exercised
 - topbar `Pets` hides all nine windows; `Show pets` restores all nine and unhides motion
 - hidden pets pause movement; showing them resumes from the last position
