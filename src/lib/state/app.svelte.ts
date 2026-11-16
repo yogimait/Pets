@@ -247,6 +247,7 @@ let syncing = false;
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
 const autoPlanning = new Set<string>();
 const phaseCapNotified = new Set<string>();
+const autoPlanCooldown = new Map<string, number>();
 
 async function maybeAutoPlan(snapshot: Snapshot): Promise<void> {
   for (const project of snapshot.projects) {
@@ -267,6 +268,7 @@ async function maybeAutoPlan(snapshot: Snapshot): Promise<void> {
     );
     if (waiting || !tasks.every((task) => task.status === "done")) continue;
     if (autoPlanning.has(project.id)) continue;
+    if (Date.now() < (autoPlanCooldown.get(project.id) ?? 0)) continue;
     autoPlanning.add(project.id);
     try {
       // Give the next planner the durable lessons from the finished phase.
@@ -283,6 +285,7 @@ async function maybeAutoPlan(snapshot: Snapshot): Promise<void> {
       }
     } catch (error) {
       console.warn("automatic phase planning failed", error);
+      autoPlanCooldown.set(project.id, Date.now() + 60_000);
     } finally {
       autoPlanning.delete(project.id);
     }
