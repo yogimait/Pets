@@ -67,7 +67,7 @@ See [[First-Draft]] for the operator walkthrough.
 - SSE event updates with a 15-second polling fallback; no replay after disconnects.
 - Git tasks use isolated worktrees; accept fast-forwards the base branch.
 - Manual tasks are created from Tasks → New task.
-- Pets: nine draggable, free-moving 56x80 desktop sprites with role-specific idle/work movement and a shared comic speech bubble. Topbar Pets toggles show/hide and pauses motion; closing the main window exits all pets; a second launch focuses the existing instance.
+- Pets: one draggable/resizable Pet pen with nine 56x80 sprites, role-specific idle/work movement, and an in-pen comic speech bubble. Topbar Pets toggles the pen; closing the main window exits it.
 - Live model smoke, Plan/task/Dreamer flows, and memory injection passed.
 - One chat session per project.
 

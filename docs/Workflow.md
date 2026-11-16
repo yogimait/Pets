@@ -108,7 +108,7 @@ What is live:
 - **Tasks**: queued/running/review/blocked/done status, session id, result, permission card, and a review banner with a Review next shortcut.
 - **Activity**: start, finish, permission, accept, delegation, and memory events.
 - **Overview**: active work and recent activity.
-- **Pet bubble**: agent status, current task, latest activity.
+- **Pet pen**: all nine agents confined in one draggable/resizable enclosure; the in-pen bubble shows status, current task, and latest activity.
 
 What is not live:
 

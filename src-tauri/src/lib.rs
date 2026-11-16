@@ -189,6 +189,8 @@ fn pet_label(agent_id: &str) -> String {
     format!("pet-{agent_id}")
 }
 
+const PET_PEN_LABEL: &str = "pet-pen";
+
 fn create_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
     let monitor = app
         .primary_monitor()
@@ -196,56 +198,40 @@ fn create_pet_windows(app: &tauri::AppHandle) -> Result<(), String> {
         .ok_or_else(|| "No monitor available for pets.".to_string())?;
     let origin = monitor.position();
     let area = monitor.size();
-    for (index, (agent_id, _)) in PETS.iter().enumerate() {
-        let label = pet_label(agent_id);
-        if app.get_webview_window(&label).is_some() {
-            continue;
-        }
-        let x = origin.x + 24 + (index as i32 * 76);
-        let y = origin.y + area.height as i32 - 110;
-        WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+    if app.get_webview_window(PET_PEN_LABEL).is_none() {
+        let width = 600.0;
+        let height = 420.0;
+        let x = origin.x + area.width as i32 - width as i32 - 24;
+        let y = origin.y + area.height as i32 - height as i32 - 48;
+        WebviewWindowBuilder::new(app, PET_PEN_LABEL, WebviewUrl::App("index.html".into()))
             .title("")
-            .inner_size(56.0, 80.0)
+            .inner_size(width, height)
+            .min_inner_size(320.0, 220.0)
             .position(x as f64, y as f64)
             .decorations(false)
             .transparent(true)
             .always_on_top(true)
             .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .visible(true)
-            .build()
-            .map_err(|error| format!("Could not create pet {agent_id}: {error}"))?;
-        if let Some(window) = app.get_webview_window(&label) {
+            .resizable(true)
+                    .shadow(false)
+                    .focused(false)
+                    .visible(true)
+                    .build()
+                    .map_err(|error| format!("Could not create pet pen: {error}"))?;
+        if let Some(window) = app.get_webview_window(PET_PEN_LABEL) {
             let _ = window.set_always_on_top(true);
             let _ = window.set_position(PhysicalPosition::new(x, y));
         }
     }
-
-    if app.get_webview_window("pet-bubble").is_none() {
-        WebviewWindowBuilder::new(app, "pet-bubble", WebviewUrl::App("index.html".into()))
-            .title("")
-            .inner_size(340.0, 180.0)
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .visible(false)
-            .build()
-            .map_err(|error| format!("Could not create pet bubble: {error}"))?;
-    }
     Ok(())
 }
 
+
+
 fn show_pets(app: &tauri::AppHandle) {
-    for (agent_id, _) in PETS {
-        if let Some(window) = app.get_webview_window(&pet_label(agent_id)) {
-            let _ = window.show();
-        }
+    if let Some(window) = app.get_webview_window(PET_PEN_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 
@@ -256,10 +242,8 @@ fn open_pets(app: tauri::AppHandle, visibility: State<'_, PetVisibilityState>) {
 }
 
 fn hide_all_pets(app: &tauri::AppHandle) {
-    for (agent_id, _) in PETS {
-        if let Some(window) = app.get_webview_window(&pet_label(agent_id)) {
-            let _ = window.hide();
-        }
+    if let Some(window) = app.get_webview_window(PET_PEN_LABEL) {
+        let _ = window.hide();
     }
     if let Some(bubble) = app.get_webview_window("pet-bubble") {
         let _ = bubble.hide();
@@ -373,7 +357,6 @@ fn open_record_impl(app: &tauri::AppHandle, kind: &str, id: &str) {
     if let Some(overlay) = app.get_webview_window("orchestrator") {
         let _ = overlay.hide();
     }
-    hide_all_pets(app);
     if let Ok(mut active) = app.state::<PetBubbleState>().0.lock() {
         *active = None;
     }
@@ -643,7 +626,7 @@ pub fn run() {
             if let Err(error) = create_pet_windows(app.handle()) {
                 eprintln!("pet window creation failed: {error}");
             } else {
-                spawn_pet_motion(app.handle().clone());
+                show_pets(app.handle());
             }
             let event_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {

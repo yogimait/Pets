@@ -292,14 +292,12 @@ Other model-start failures remain the generic model error. Unit coverage exists;
 
 Opened the pets from the main topbar.
 
-- nine transparent 56x80 pet windows with named pixel sprites
-- no visible frame or box
-- each agent has a distinct idle area and working area
+- one transparent 600x420 Pet pen window with nine 56x80 pixel sprites
+- pen header drags the enclosure; bottom-right corner resizes it down to 320x220
+- each agent has a distinct idle area and working area inside the pen
 - idle pets wander slowly with pauses; active pets move faster around the work area
-- drag/hover surface is exactly the 56x80 sprite; the transparent window margin does not start a drag or show the bubble
-- drag Micheal from the lower desktop to an upper position: the window followed the pointer, stayed at the drop point, then wandered around that new anchor
-- started a real Live Test task owned by Scout: Ryan moved from his idle area to the work area while the task was active, returned after review, and the task was accepted as done
-- hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
+- dragging a sprite repositions it inside the pen
+- hover/click opens one comic speech bubble inside the pen with name, role, status, current task, and latest activity
 - the main app does not open from a pet
 - bubble hides when the pointer leaves the pet, after 4 seconds, or via close
 - autonomous task `Autonomous smoke` was queued with `autoStart:false`, started automatically, finished, auto-accepted, and appeared as done with no review gate
@@ -309,11 +307,10 @@ Opened the pets from the main topbar.
 - edit opens title, description, acceptance, priority, and owner fields; cancel leaves the task unchanged
 - Windows Run key contains Agent Bots pointing at the release executable (login autostart); Settings → Startup toggles it and the first launch enables it unless turned off
 - current project completion notification count and project-stopped detection were exercised
-- topbar `Pets` hides all nine windows; `Show pets` restores all nine and unhides motion
-- hidden pets pause movement; showing them resumes from the last position
-- closing the main window exits the app process and removes all pet windows
-- launching the app while it is already running exits the second process, focuses the existing main window, and does not add pet windows
-- topbar Pets re-shows all pet windows
+- topbar `Pets` hides the pen; `Show pets` restores it
+- closing the main window exits the app process and removes the pen
+- launching the app while it is already running exits the second process, focuses the existing main window, and does not add another pen
+- topbar Pets re-shows the pen
 
 ### Packaged agents and installer
 

@@ -4,7 +4,7 @@ Agent Bots is a local-first desktop control plane. The Svelte renderer owns pres
 
 ## Runtime
 
-- Tauri 2 shell with main 1360x820 (1080x720 floor), a 920x680 resizable frameless orchestrator overlay (640x480 floor) opened with `Alt+\``, nine transparent 56x80 desktop pet windows, and one shared 340x180 speech-bubble window. The main window owns the process: closing it exits the app and closes every pet window. A second launch focuses the existing instance instead of spawning another pet fleet.
+- Tauri 2 shell with main 1360x820 (1080x720 floor), a 920x680 resizable frameless orchestrator overlay (640x480 floor) opened with `Alt+\``, and one draggable/resizable transparent Pet pen window containing nine 56x80 sprites and an in-pen comic bubble. The main window owns the process: closing it exits the app and closes every pet window. A second launch focuses the existing instance instead of spawning another pet fleet.
 - Svelte 5 renderer with runes, TypeScript strict, Vite 8, Tailwind CSS 4.
 - SQLite database at `app_data_dir/workforce.db`. One `state` row stores the full snapshot as JSON. This is deliberate for the first draft; normalized tables come later.
 - The app attaches to the existing OpenCode background service instead of spawning a private `serve` child. It discovers the URL with `opencode service status` and reads the local IPC password from `~/.config/opencode/service.json`. The service stays alive when the app exits.
@@ -185,7 +185,7 @@ Dreamer reads project context, review/done task results, existing memory, projec
 - Native notifications are final project complete/stopped events and depend on Windows notification permission. The in-app Alerts bell shows task attention states.
 - The app auto-starts at Windows login through the Tauri autostart plugin. Settings → Startup has an enable/disable toggle; the first launch enables it unless the user turns it off. Closing the window still stops the process; a crash or manual exit stops the loop until relaunch.
 - Projects with `autonomy: true` run a phase loop. After all current tasks are done, Dreamer runs, the orchestrator replans the remaining work, and the scheduler continues. The phase limit defaults to 6 (1–20). An empty planner result marks the project complete; a blocked task stops the project.
-- Pets are independent desktop windows. Each has a role-specific idle area and working area. Idle pets wander slowly around their area with pauses; active pets move faster around a central work area. Dragging a pet adopts its drop point as its idle anchor, so it stays where it was placed and then wanders from there.
+- Pets live in one Pet pen window. The pen is draggable by its header and resizable from its bottom-right corner. Each pet has a role-specific idle area and working area inside the pen; idle pets wander slowly with pauses, active pets move faster around a central work area. Dragging a pet repositions it inside the pen.
 - The packaged installer is NSIS; bundled agents are installed into the global OpenCode agent directory on startup.
 - Live Dreamer consolidation and a real Live Test task/review/accept pass. Full Plan-mode evaluation is still pending.
 - No visual regression or DOM test harness.
