@@ -195,6 +195,18 @@ Every task prompt now requires the agent to:
 
 Plan prompts also require an explicit structure, runnable checks, and a final independent quality/audit gate for implementation work. The Auditing role now covers file structure, duplication, dead code, testability, and convention drift in addition to security.
 
+## Multi-phase autonomous projects
+
+A project created with **Run autonomously after each phase** enabled stores its mission in its description, context, and instructions. When all tasks in the current phase are done:
+
+1. Dreamer consolidates the finished phase into memory.
+2. The orchestrator receives the mission, task board, approved memory, and completed results.
+3. It plans only the remaining work.
+4. The scheduler starts the queued tasks.
+5. The cycle repeats until the planner returns an empty task array or the phase limit is reached.
+
+The default phase limit is **6** and can be set from 1 to 20 when creating the project. An empty plan marks the project complete. A blocked task stops the project and sends the final stopped notification. Project autonomy is opt-in per project; older projects without the flag stay paused.
+
 ## Always-on operation
 
 The app registers itself for Windows login autostart through the Tauri autostart plugin. While the process is running it:

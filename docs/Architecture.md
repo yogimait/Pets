@@ -184,6 +184,7 @@ Dreamer reads project context, review/done task results, existing memory, projec
 - A blocked task stops the project; the final notification reports the stopped project. There is no automatic infinite retry.
 - Native notifications are final project complete/stopped events and depend on Windows notification permission. The in-app Alerts bell shows task attention states.
 - The app auto-starts at Windows login through the Tauri autostart plugin. Closing the window still stops the process; a crash or manual exit stops the loop until relaunch.
+- Projects with `autonomy: true` run a phase loop. After all current tasks are done, Dreamer runs, the orchestrator replans the remaining work, and the scheduler continues. The phase limit defaults to 6 (1–20). An empty planner result marks the project complete; a blocked task stops the project.
 - Pets are independent desktop windows. Each has a role-specific idle area and working area. Idle pets wander slowly around their area with pauses; active pets move faster around a central work area. Dragging a pet adopts its drop point as its idle anchor, so it stays where it was placed and then wanders from there.
 - The packaged installer is NSIS; bundled agents are installed into the global OpenCode agent directory on startup.
 - Live Dreamer consolidation and a real Live Test task/review/accept pass. Full Plan-mode evaluation is still pending.

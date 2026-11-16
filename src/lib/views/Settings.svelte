@@ -5,6 +5,7 @@
   import RuntimePanel from "../components/RuntimePanel.svelte";
   import { opencodeAgentId } from "../selectors.ts";
   import { app, loadPolicy, reloadPolicy } from "../state/app.svelte.ts";
+  import { notify } from "../notifications.ts";
   import { workforceAvailable } from "../workforce.ts";
   import { fullTimestamp } from "../format.ts";
   import type { Snapshot } from "../types.ts";
@@ -78,6 +79,27 @@
           : "the browser preview cannot start models."}
       </li>
     </ul>
+  </Panel>
+
+  <Panel title="Notifications" subtitle="Windows desktop alerts">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p class="text-[11.5px] text-ink">Final project notifications</p>
+        <p class="mt-1 max-w-[560px] text-[10.5px] leading-relaxed text-ink-3">
+          {live
+            ? "The first notification asks Windows for permission. If alerts are blocked, open Windows Settings > System > Notifications and allow Agent Bots. Final project complete/stopped events are always sent here; the Alerts bell stays in-app."
+            : "Desktop notifications require the desktop app."}
+        </p>
+      </div>
+      {#if live}
+        <button
+          onclick={() => void notify("Agent Bots", "Desktop notifications are enabled.")}
+          class="rounded-control border border-line-soft bg-surface px-3 py-1.5 text-[10.5px] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+        >
+          Send test notification
+        </button>
+      {/if}
+    </div>
   </Panel>
 
   <Panel title="Global policy" subtitle="Loaded verbatim from the OpenCode config">

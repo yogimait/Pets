@@ -245,6 +245,49 @@ interface WorkforceEvent {
 let syncStarted = false;
 let syncing = false;
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
+const autoPlanning = new Set<string>();
+const phaseCapNotified = new Set<string>();
+
+async function maybeAutoPlan(snapshot: Snapshot): Promise<void> {
+  for (const project of snapshot.projects) {
+    if (project.autonomy !== true) continue;
+    const phase = project.phase ?? 0;
+    const maxPhases = project.maxPhases ?? 6;
+    if (phase >= maxPhases) {
+      if (!phaseCapNotified.has(project.id)) {
+        phaseCapNotified.add(project.id);
+        void notify("Project phase limit reached", `${project.key} · ${project.name}`);
+      }
+      continue;
+    }
+    const tasks = snapshot.tasks.filter((task) => task.projectId === project.id);
+    if (tasks.length === 0) continue;
+    const waiting = tasks.some((task) =>
+      ["queued", "running", "review"].includes(task.status),
+    );
+    if (waiting || !tasks.every((task) => task.status === "done")) continue;
+    if (autoPlanning.has(project.id)) continue;
+    autoPlanning.add(project.id);
+    try {
+      // Give the next planner the durable lessons from the finished phase.
+      await runDreamer(project.id);
+      const mission = [project.description, project.context, project.instructions]
+        .filter(Boolean)
+        .join("\n\n");
+      const result = await planWork(
+        project.id,
+        `Continue the autonomous project. Mission and definition of done:\n${mission}\n\nReview the completed work, tests, and audit evidence. Plan only the remaining work. If the project is complete, return an empty tasks array with a complete summary.`,
+      );
+      if (result && result.tasks.length === 0) {
+        void notify("Project complete", `${project.key} · ${project.name}`);
+      }
+    } catch (error) {
+      console.warn("automatic phase planning failed", error);
+    } finally {
+      autoPlanning.delete(project.id);
+    }
+  }
+}
 
 function notifyTransitions(previous: Snapshot | null, next: Snapshot): void {
   if (!previous) return;
@@ -266,7 +309,9 @@ function notifyTransitions(previous: Snapshot | null, next: Snapshot): void {
     const wasDone = before.length > 0 && before.every((task) => task.status === "done");
     const wasStopped =
       before.length > 0 && before.some((task) => task.status === "blocked");
-    if (done && !wasDone) {
+    const autonomyContinues =
+      project.autonomy === true && (project.phase ?? 0) < (project.maxPhases ?? 6);
+    if (done && !wasDone && !autonomyContinues) {
       void notify("Project complete", `${project.key} · ${project.name}`);
     } else if (stopped && !wasStopped) {
       void notify("Project stopped", `${project.key} · ${project.name}`);
@@ -293,6 +338,7 @@ async function syncNow(): Promise<void> {
     app.chat = next.chat ?? [];
     app.workforceError = null;
     notifyTransitions(previous, next);
+    void maybeAutoPlan(next);
   } catch (error) {
     app.workforceError = String(error);
   } finally {

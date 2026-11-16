@@ -19,6 +19,8 @@
   let createPolicy = $state(true);
   let createReadme = $state(true);
   let initGit = $state(false);
+  let autonomy = $state(true);
+  let maxPhases = $state(6);
   let inspection = $state<ProjectInspection | null>(null);
   let inspecting = $state(false);
   let busy = $state(false);
@@ -89,6 +91,8 @@
         createPolicy,
         createReadme,
         initGit,
+        autonomy,
+        maxPhases,
       });
       if (id) {
         closeSheet();
@@ -210,6 +214,24 @@
       </label>
 
       <div class="space-y-2 rounded-control border border-line-soft bg-surface p-3">
+        <label class="flex items-start gap-2 text-[11px] text-ink-2">
+          <input type="checkbox" bind:checked={autonomy} class="mt-0.5 size-3 accent-[#8ca6c0]" />
+          <span>
+            <span class="text-ink">Run autonomously after each phase</span>
+            <span class="mt-0.5 block text-[9.5px] text-ink-4">Re-plan remaining work when all current tasks are done, up to the phase limit.</span>
+          </span>
+        </label>
+        <label class="flex items-center gap-2 text-[11px] text-ink-2">
+          <span class="text-ink-4">Phase limit</span>
+          <input
+            type="number"
+            bind:value={maxPhases}
+            min="1"
+            max="20"
+            class="h-7 w-16 rounded-control border border-line-soft bg-canvas px-2 text-[11px] text-ink-2"
+          />
+        </label>
+
         <label class="flex items-start gap-2 text-[11px] text-ink-2">
           <input type="checkbox" bind:checked={createFolder} class="mt-0.5 size-3 accent-[#8ca6c0]" />
           <span>

@@ -41,6 +41,8 @@ export interface ProjectInput {
   createPolicy: boolean;
   createReadme: boolean;
   initGit: boolean;
+  autonomy: boolean;
+  maxPhases: number;
 }
 
 export function workforceAvailable(): boolean {
@@ -71,6 +73,8 @@ export function workforceCreateProject(input: ProjectInput): Promise<Snapshot> {
     createPolicy: input.createPolicy,
     createReadme: input.createReadme,
     initGit: input.initGit,
+    autonomy: input.autonomy,
+    maxPhases: input.maxPhases,
   });
 }
 

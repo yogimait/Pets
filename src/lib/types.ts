@@ -53,6 +53,9 @@ export interface Project {
   instructions: string;
   repoPath: string;
   createdAt: number;
+  autonomy?: boolean;
+  phase?: number;
+  maxPhases?: number;
 }
 
 export interface Artifact {

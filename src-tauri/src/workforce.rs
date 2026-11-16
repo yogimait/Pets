@@ -199,7 +199,10 @@ pub fn workforce_create_project(
     create_policy: Option<bool>,
     create_readme: Option<bool>,
     init_git: Option<bool>,
+    autonomy: Option<bool>,
+    max_phases: Option<u32>,
 ) -> Result<Value, String> {
+    let max_phases = max_phases.unwrap_or(6).clamp(1, 20);
     let store = store.inner();
     let name = name.trim();
     if name.is_empty() {
@@ -339,7 +342,10 @@ pub fn workforce_create_project(
         "context": context.unwrap_or_default(),
         "instructions": instructions.unwrap_or_default(),
         "repoPath": path.display().to_string(),
-        "createdAt": now_ms()
+        "createdAt": now_ms(),
+        "autonomy": autonomy.unwrap_or(true),
+        "phase": 0,
+        "maxPhases": max_phases
     });
     let created_path = path.display().to_string();
     let summary = format!(
@@ -591,6 +597,7 @@ pub async fn workforce_plan(
             "result": null
         }));
     }
+    enforce_plan_dependencies(&mut planned);
 
     let summary = if summary.is_empty() {
         format!("Planned {} tasks.", planned.len())
@@ -617,6 +624,21 @@ pub async fn workforce_plan(
         if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
             for task in &planned_for_write {
                 tasks.push(task.clone());
+            }
+        }
+        if let Some(project) = value
+            .get_mut("projects")
+            .and_then(Value::as_array_mut)
+            .and_then(|projects| {
+                projects
+                    .iter_mut()
+                    .find(|project| project.get("id").and_then(Value::as_str) == Some(&project_id))
+            })
+        {
+            let phase = project.get("phase").and_then(Value::as_u64).unwrap_or(0) + 1;
+            project["phase"] = json!(phase);
+            if planned_for_write.is_empty() {
+                project["autonomy"] = json!(false);
             }
         }
         for task in &planned_for_write {
@@ -2446,19 +2468,75 @@ fn decision_status(raw: &str) -> Result<&'static str, String> {
     }
 }
 
+fn enforce_plan_dependencies(planned: &mut [Value]) {
+    let ids: Vec<String> = planned
+        .iter()
+        .filter_map(|task| task.get("id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    let implementation_ids: Vec<String> = planned
+        .iter()
+        .filter(|task| {
+            matches!(
+                task.get("ownerId").and_then(Value::as_str),
+                Some("pixel") | Some("forge") | Some("iris")
+            )
+        })
+        .filter_map(|task| task.get("id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    for task in planned.iter_mut() {
+        let Some(id) = task.get("id").and_then(Value::as_str).map(str::to_string) else {
+            continue;
+        };
+        let owner = task.get("ownerId").and_then(Value::as_str).unwrap_or("");
+        let mut dependencies: Vec<String> = task
+            .get("dependsOn")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if owner == "verity" {
+            for dependency in &ids {
+                if dependency != &id && !dependencies.contains(dependency) {
+                    dependencies.push(dependency.clone());
+                }
+            }
+        } else if owner == "probe" && dependencies.is_empty() {
+            dependencies.extend(
+                implementation_ids
+                    .iter()
+                    .filter(|dependency| *dependency != &id)
+                    .cloned(),
+            );
+        }
+        task["dependsOn"] = json!(dependencies);
+    }
+}
+
 fn plan_prompt(snapshot: &Value, project: &Value, goal: &str) -> String {
     let owners = available_owners(snapshot).join(", ");
     let titles = project_task_titles(snapshot, project);
+    let project_id = project.get("id").and_then(Value::as_str).unwrap_or("");
+    let memory = memory_context(snapshot, project_id, 8);
     let goal = if goal.trim().is_empty() {
         "(not provided; plan the next useful step from the project context)"
     } else {
         goal.trim()
     };
     format!(
-        "You are the workforce orchestrator planning work for one project.\n\n{context}\n\nGoal from the user:\n{goal}\n\nExisting tasks:\n{titles}\n\nAvailable owner ids: {owners}\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"summary\":\"one or two sentences\",\"tasks\":[{{\"title\":\"short title\",\"description\":\"one deliverable\",\"ownerId\":\"pixel\",\"priority\":\"normal\",\"acceptance\":\"how to verify\",\"dependsOn\":[0]}}]}}\n\nRules:\n- One deliverable per task.\n- ownerId must be one of the available owner ids.\n- priority is low, normal, high, or critical.\n- dependsOn contains zero-based indices of earlier tasks in this array, or an empty array.\n- acceptance states the check that proves the task is done.
+        "You are the workforce orchestrator planning work for one project.\n\n{context}\n\nApproved project memory:\n{memory}\n\nGoal from the user:\n{goal}\n\nExisting tasks:\n{titles}\n\nAvailable owner ids: {owners}\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"summary\":\"one or two sentences\",\"tasks\":[{{\"title\":\"short title\",\"description\":\"one deliverable\",\"ownerId\":\"pixel\",\"priority\":\"normal\",\"acceptance\":\"how to verify\",\"dependsOn\":[0]}}]}}\n\nRules:\n- One deliverable per task.\n- ownerId must be one of the available owner ids.\n- priority is low, normal, high, or critical.\n- dependsOn contains zero-based indices of earlier tasks in this array, or an empty array.\n- acceptance states the check that proves the task is done.
 - For implementation plans, require an explicit file/component structure, runnable build/test commands, and a final independent quality/audit gate.
-- Do not plan a single monolithic source file when the project needs components or modules.",
-        context = project_context(project)
+- Auditing must depend on the implementation and testing tasks, never run before them.
+- Do not plan a single monolithic source file when the project needs components or modules.
+- If this is a continuation and the project is already complete, return an empty tasks array with a complete summary.",
+        context = project_context(project),
+        memory = if memory.is_empty() { "(none)".to_string() } else { memory }
     )
 }
 
@@ -3424,6 +3502,24 @@ mod tests {
         assert!(message.contains("OpenCode"));
         let generic = provider_failure_message("p", "m", "connection refused");
         assert!(generic.contains("Could not start model p/m"));
+    }
+
+    #[test]
+    fn plan_enforces_audit_after_implementation_and_testing() {
+        let mut planned = vec![
+            json!({ "id": "t-1", "ownerId": "verity", "dependsOn": [] }),
+            json!({ "id": "t-2", "ownerId": "forge", "dependsOn": [] }),
+            json!({ "id": "t-3", "ownerId": "probe", "dependsOn": [] }),
+        ];
+        enforce_plan_dependencies(&mut planned);
+        let audit_deps = planned[0]["dependsOn"].as_array().unwrap();
+        assert!(audit_deps.iter().any(|dependency| dependency == "t-2"));
+        assert!(audit_deps.iter().any(|dependency| dependency == "t-3"));
+        assert!(planned[2]["dependsOn"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|dependency| dependency == "t-2"));
     }
 
     #[test]

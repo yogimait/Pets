@@ -303,6 +303,7 @@ Opened the pets from the main topbar.
 - the main app does not open from a pet
 - bubble hides when the pointer leaves the pet, after 4 seconds, or via close
 - autonomous task `Autonomous smoke` was queued with `autoStart:false`, started automatically, finished, auto-accepted, and appeared as done with no review gate
+- project phase fields, phase-limit UI, and autonomous re-planning are present; audit tasks depend on implementation/testing tasks
 - accepting a final task appends a project-complete report and sends the final desktop notification
 - manual review controls remain available as a fallback: Accept result, Reject result, Edit task
 - edit opens title, description, acceptance, priority, and owner fields; cancel leaves the task unchanged
