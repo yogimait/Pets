@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[derive(Serialize)]
@@ -598,6 +599,10 @@ pub fn run() {
         .manage(OpenCodeState::new())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -623,6 +628,9 @@ pub fn run() {
             app.manage(PetBubbleState::default());
             app.manage(PetDragState::default());
             app.manage(PetVisibilityState::default());
+            if let Err(error) = app.autolaunch().enable() {
+                eprintln!("autostart registration failed: {error}");
+            }
             if let Err(error) = install_bundled_agents() {
                 eprintln!("bundled agent install failed: {error}");
             }

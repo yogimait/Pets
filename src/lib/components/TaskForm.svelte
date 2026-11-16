@@ -16,7 +16,6 @@
   let description = $state("");
   let acceptance = $state("");
   let priority = $state<TaskPriority>("normal");
-  let autoStart = $state(true);
   let requiredMcp = $state<string[]>([]);
   let busy = $state(false);
   let error = $state("");
@@ -48,7 +47,7 @@
         ownerId,
         priority,
         acceptance: acceptance.trim(),
-        autoStart,
+        autoStart: true,
         requiredMcp,
       });
       if (saved) onclose();
@@ -125,10 +124,7 @@
           <option value="critical">Critical</option>
         </select>
       </label>
-      <label class="ml-auto flex items-center gap-2 text-[11px] text-ink-2">
-        <input bind:checked={autoStart} type="checkbox" class="size-3.5 accent-[#8ca6c0]" />
-        Start immediately
-      </label>
+      <p class="ml-auto text-[10px] text-ink-4">Autonomous loop starts queued tasks automatically.</p>
     </div>
 
     {#if error}

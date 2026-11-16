@@ -11,7 +11,7 @@ The first complete draft now has:
 - A task scheduler with two concurrent sessions, one owner per task, dependencies, timeouts, and retries.
 - Task-to-session linking with review and accept.
 - Dreamer memory proposals with automatic 80% confidence decisions.
-- Review accept/reject/edit/retry, in-app Alerts, and native task notifications.
+- Autonomous loop: queued tasks start, permissions auto-approve within policy, results auto-accept, dependencies start, final completion notifications fire, and the app registers Windows login autostart.
 - Pixel pet sprites and pet names on agent cards, tasks, activity, and chat.
 - A policy gate for global and project `AGENTS.md`.
 - Honest browser fallback when the desktop backend is absent.

@@ -867,50 +867,81 @@ pub async fn workforce_poll(
             }
         };
         if let Some(permission) = first_permission(&permissions) {
-            store.update(|value| {
-                let (_owner, project_id, title) = task_meta(value, &task_id);
-                let permission_id = permission
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                if find_task(value, &task_id)
-                    .and_then(|task| task.pointer("/permission/id"))
-                    .and_then(Value::as_str)
-                    != Some(&permission_id)
-                {
-                    if let Some(task) = find_task_mut(value, &task_id) {
-                        task["permission"] = permission.clone();
-                        task["updatedAt"] = json!(now_ms());
-                    }
-                    let action = permission
-                        .get("action")
-                        .and_then(Value::as_str)
-                        .unwrap_or("tool");
-                    let resources = permission
-                        .get("resources")
-                        .and_then(Value::as_array)
-                        .map(|items| {
-                            items
-                                .iter()
-                                .filter_map(Value::as_str)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                        .unwrap_or_default();
-                    push_activity(
+            let request_id = permission
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let action = permission
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_string();
+            let resources = permission
+                .get("resources")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            let approvals = find_task(&snapshot, &task_id)
+                .and_then(|task| task.get("autoApprovals"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            if approvals >= MAX_AUTO_PERMISSIONS as u64 {
+                store.update(|value| {
+                    mark_blocked(
                         value,
-                        "status",
-                        "orchestrator",
-                        Some(&project_id),
-                        Some(&task_id),
-                        &format!("permission requested for {title}: {action}"),
-                        Some(&resources),
+                        &task_id,
+                        "Task requested more than the autonomous permission budget.",
                     );
+                    Ok(())
+                })?;
+                continue;
+            }
+            match runtime
+                .post_json(
+                    &format!("/api/session/{session_id}/permission/{request_id}/reply"),
+                    json!({ "decision": "once" }),
+                )
+                .await
+            {
+                Ok(_) => {
+                    store.update(|value| {
+                        if let Some(task) = find_task_mut(value, &task_id) {
+                            task["permission"] = Value::Null;
+                            task["autoApprovals"] = json!(approvals + 1);
+                            task["updatedAt"] = json!(now_ms());
+                        }
+                        push_activity(
+                            value,
+                            "status",
+                            "orchestrator",
+                            Some(&project_id),
+                            Some(&task_id),
+                            &format!("auto-approved {action} for {task_id}"),
+                            Some(&resources),
+                        );
+                        Ok(())
+                    })?;
+                    continue;
                 }
-                Ok(())
-            })?;
-            continue;
+                Err(error) => {
+                    store.update(|value| {
+                        mark_blocked(
+                            value,
+                            &task_id,
+                            &format!("Automatic permission reply failed: {error}"),
+                        );
+                        Ok(())
+                    })?;
+                    continue;
+                }
+            }
         }
         store.update(|value| {
             if let Some(task) = find_task_mut(value, &task_id) {
@@ -968,6 +999,12 @@ pub async fn workforce_poll(
             mark_review(value, &task_id, &text);
             Ok(())
         })?;
+        if let Err(error) = accept_review_task(store, &task_id) {
+            store.update(|value| {
+                mark_blocked(value, &task_id, &format!("Automatic acceptance failed: {error}"));
+                Ok(())
+            })?;
+        }
     }
 
     snapshot_value(store)
@@ -1049,12 +1086,7 @@ pub async fn workforce_run_task(
     start_task(store, runtime.inner(), &task_id).await
 }
 
-#[tauri::command]
-pub async fn workforce_accept_task(
-    store: State<'_, WorkforceStore>,
-    task_id: String,
-) -> Result<Value, String> {
-    let store = store.inner();
+fn accept_review_task(store: &WorkforceStore, task_id: &str) -> Result<Value, String> {
     let snapshot = snapshot_value(store)?;
     let current = find_task(&snapshot, &task_id)
         .ok_or_else(|| format!("Unknown task: {task_id}"))?;
@@ -1159,6 +1191,14 @@ pub async fn workforce_accept_task(
         }
         Ok(())
     })
+}
+
+#[tauri::command]
+pub async fn workforce_accept_task(
+    store: State<'_, WorkforceStore>,
+    task_id: String,
+) -> Result<Value, String> {
+    accept_review_task(store.inner(), &task_id)
 }
 
 #[tauri::command]
@@ -1792,6 +1832,7 @@ async fn start_task(
             task["finishedAt"] = Value::Null;
             task["startedAt"] = json!(started_at);
             task["updatedAt"] = json!(started_at);
+            task["autoApprovals"] = json!(0);
             if let Some((path, branch)) = &worktree {
                 task["worktreePath"] = json!(path);
                 task["worktreeBranch"] = json!(branch);
@@ -2161,7 +2202,6 @@ fn ready_tasks(snapshot: &Value) -> Vec<String> {
                 .iter()
                 .filter(|task| {
                     task.get("status").and_then(Value::as_str) == Some("queued")
-                        && task.get("autoStart").and_then(Value::as_bool) == Some(true)
                         && dependencies_done(snapshot, task)
                 })
                 .collect()
@@ -3521,7 +3561,7 @@ mod tests {
     }
 
     #[test]
-    fn readiness_respects_auto_start_and_dependencies() {
+    fn readiness_respects_dependencies_and_starts_manual_tasks() {
         let snapshot = json!({
             "tasks": [
                 { "id": "t-done", "status": "done" },
@@ -3533,7 +3573,11 @@ mod tests {
         });
         assert_eq!(
             ready_tasks(&snapshot),
-            vec!["t-ready".to_string(), "t-waiting".to_string()]
+            vec![
+                "t-ready".to_string(),
+                "t-manual".to_string(),
+                "t-waiting".to_string()
+            ]
         );
     }
 

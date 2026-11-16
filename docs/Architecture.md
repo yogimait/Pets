@@ -49,8 +49,8 @@ Views receive a `Snapshot` prop. They never import fixture data directly. `src/l
 | `workforce_create_task` | Create a manual queued task with owner, priority, acceptance, and optional auto-start |
 | `workforce_plan` | Ask the orchestrator for a task plan, create tasks, append activity and chat |
 | `workforce_send` | Send an orchestrator chat prompt and store the reply |
-| `workforce_tick` | Start ready `autoStart` tasks |
-| `workforce_poll` | Finish running sessions into review or blocked |
+| `workforce_tick` | Start ready queued tasks |
+| `workforce_poll` | Finish running sessions, auto-accept results, or mark blocked |
 | `workforce_run_task` | Run or retry one task |
 | `workforce_accept_task` | Accept a review result and mark it done |
 | `workforce_abort_task` | Interrupt a session and block the task |
@@ -104,8 +104,8 @@ The app does not implement a second model/tool loop. It attaches to the shared O
 - Plan uses a one-shot `orchestrator-workforce` session and expects a JSON object. The first JSON object is extracted from the reply.
 - Task sessions use the owner's OpenCode agent: `pixel`, `forge`, `scout`, `voice`, `probe`, `iris`, `verity`.
 - Dreamer uses `dreamer`.
-- A session becomes review when `time.idle >= startedAt` or an outcome is set. A missing session or a run longer than 30 minutes becomes blocked.
-- Permissions: generated agent files allow workspace tools and MCP but deny questions, secrets, external directories, subagents, edits for the orchestrator, and obvious destructive commands. Task sessions do not add broader session permissions. Review actions are Accept, Reject, Edit, and Retry.
+- A session completion is auto-accepted: the result is stored, an isolated worktree is merged, and dependent tasks become eligible. A missing session, merge failure, permission-budget exhaustion, or a run longer than 30 minutes becomes blocked.
+- Permissions: generated agent files allow workspace tools and MCP but deny questions, secrets, external directories, subagents, edits for the orchestrator, and obvious destructive commands. Task permission requests are auto-approved once up to 16 per task. Manual review actions remain as a fallback.
 - Model selection: `AGENT_BOTS_MODEL` as `provider/model`, otherwise `opencode-go/deepseek-v4.1-flash`.
 - The global `AGENTS.md` and project `AGENTS.md` must both exist before a real run. The task prompt includes both policies, the role prompt, approved project memory, the DevVault root/Home/hub paths with the global maintenance rule, acceptance criteria, and the handoff contract.
 - Generated agents deny external directories except the DevVault root (`DEVVAULT_PATH`, default `%USERPROFILE%\Obsidian\DevVault`), so task agents can maintain their hub note and Home row as the global policy requires.
@@ -144,7 +144,7 @@ Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` v
 
 - Maximum two running tasks.
 - One running task per owner.
-- Only `autoStart` tasks are started by the tick. Manual tasks use Run or Retry.
+- Every queued task with completed dependencies starts automatically; `autoStart` is no longer a human gate.
 - Dependencies must all be `done`.
 - A task is claimed in SQLite before the OpenCode session is created, so two ticks cannot start the same task.
 - The next dependent task starts after the previous task is accepted.
@@ -161,7 +161,7 @@ Reference chips open the linked task, agent, or project in the main window. The 
 
 ## Memory
 
-Dreamer reads project context, review/done task results, existing memory, project `AGENTS.md`/`README.md`/`docs/*.md`, role prompts, and the project's DevVault hub note. It returns JSON findings and proposals. Proposals are auto-decided at the configured confidence threshold: default 80% or higher is approved and applied; below 80% is rejected. `add` and `update` are eligible for automation; `delete` and `merge` always remain pending for manual approval. `AGENT_BOTS_MEMORY_THRESHOLD` changes the cutoff. Pending safe proposals are auto-reviewed on app start and on the next Dreamer run. Task prompts include the latest eight approved entries for that project.
+Dreamer reads project context, review/done task results, existing memory, project `AGENTS.md`/`README.md`/`docs/*.md`, role prompts, and the project's DevVault hub note. It returns JSON findings and proposals. Proposals are auto-decided at the configured confidence threshold: default 80% or higher is approved and applied; below 80% is rejected. `add` and `update` are eligible for automation; `delete` and `merge` are automatically rejected and never auto-applied. `AGENT_BOTS_MEMORY_THRESHOLD` changes the cutoff. Pending safe proposals are auto-reviewed on app start and on the next Dreamer run. Task prompts include the latest eight approved entries for that project.
 
 ## Security posture
 
@@ -180,8 +180,10 @@ Dreamer reads project context, review/done task results, existing memory, projec
 - Worktrees require a clean Git repo and a fast-forwardable base branch; merge conflicts remain manual.
 - Manual tasks are created from Tasks → New task. Queued, blocked, and review tasks can be edited inline from the task sheet.
 - One chat session per project; if OpenCode restarts, the next chat recreates it.
-- Review is always a human decision: Accept, Reject, or Edit.
-- Native notifications depend on Windows notification permission. The in-app Alerts bell works without it.
+- The autonomous loop auto-accepts results and starts the next dependency. Manual Accept/Reject/Edit remains a fallback.
+- A blocked task stops the project; the final notification reports the stopped project. There is no automatic infinite retry.
+- Native notifications are final project complete/stopped events and depend on Windows notification permission. The in-app Alerts bell shows task attention states.
+- The app auto-starts at Windows login through the Tauri autostart plugin. Closing the window still stops the process; a crash or manual exit stops the loop until relaunch.
 - Pets are independent desktop windows. Each has a role-specific idle area and working area. Idle pets wander slowly around their area with pauses; active pets move faster around a central work area. Dragging a pet adopts its drop point as its idle anchor, so it stays where it was placed and then wanders from there.
 - The packaged installer is NSIS; bundled agents are installed into the global OpenCode agent directory on startup.
 - Live Dreamer consolidation and a real Live Test task/review/accept pass. Full Plan-mode evaluation is still pending.

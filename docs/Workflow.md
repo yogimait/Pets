@@ -68,15 +68,15 @@ flowchart TD
 
 Current behavior:
 
-- Permission requests appear on the task in **Tasks**, in the topbar **Alerts** bell, and as an activity entry.
-- Task transitions to review, permission, or blocked send a native desktop notification with the agent name and project key.
-- There is no separate live question inbox. Generated agents deny the OpenCode `question` tool; an agent cannot pop a live dialog. It should request a permission, stop blocked, or return a result explaining what it needs.
+- Task permission requests are auto-approved up to 16 per task; the event is recorded in Activity.
+- Hard agent-policy denials still apply: destructive shell patterns, `.env`, external directories, subagents, and the question tool.
+- There is no separate live question inbox. Generated agents deny the OpenCode `question` tool; an agent cannot pop a live dialog. It requests a permission, stops blocked, or returns a result explaining what it needs.
 - Orchestrator questions are ordinary chat replies. Open the orchestrator to read them.
-- If a permission is denied, the task becomes blocked and the session is interrupted.
+- Native notifications are reserved for final project complete/stopped events; the Alerts bell shows task attention states.
 
 ## Review actions
 
-A task result is never auto-accepted. At review you can:
+In autonomous mode a completed result is auto-accepted, merged when a worktree exists, and scheduled forward. Manual review controls remain as a fallback when automatic acceptance fails or when the operator intervenes:
 
 - **Accept result** — mark done, merge an isolated Git worktree when present, and unblock dependents.
 - **Reject result** — requires a short reason; the task becomes blocked with that reason in its notes.
@@ -170,7 +170,7 @@ When a Dreamer run finishes:
 
 - `add` and `update` proposals at **80% confidence or higher** are approved and applied automatically
 - proposals below 80% are rejected automatically
-- `delete` and `merge` proposals always remain pending for an operator decision; destructive memory changes are never auto-applied
+- `delete` and `merge` proposals are automatically rejected; destructive memory changes are never auto-applied and never block the loop
 - the run and the auto-decision counts appear in Activity
 - pending proposals from earlier runs are auto-reviewed the same way on app start and on the next Dreamer run
 
@@ -195,6 +195,18 @@ Every task prompt now requires the agent to:
 
 Plan prompts also require an explicit structure, runnable checks, and a final independent quality/audit gate for implementation work. The Auditing role now covers file structure, duplication, dead code, testability, and convention drift in addition to security.
 
+## Always-on operation
+
+The app registers itself for Windows login autostart through the Tauri autostart plugin. While the process is running it:
+
+1. starts queued tasks automatically
+2. auto-approves tool permission requests within the agent policy
+3. accepts completed results and merges worktrees
+4. starts the next ready dependency
+5. sends a final project-complete or project-stopped notification
+
+Closing the main window still exits the app; on the next login it starts again. A crash or manual exit stops the loop until the app is started.
+
 ## End-to-end expectation
 
 A realistic test run looks like this:
@@ -215,7 +227,8 @@ A task does not silently become done. It waits in review. A task can also stop b
 - No live agent question dialog. Review results and permission cards remain the approval surfaces; Alerts and native notifications surface them.
 - No token streaming or precise step progress.
 - One model for all roles. Agent tool permissions already auto-allow safe workspace and MCP actions; destructive, external, secret, and question operations remain denied.
-- Review acceptance is always manual; the app does not auto-accept a task result.
+- Autonomous mode auto-accepts results; manual review remains a fallback and is not required for normal operation.
+- A blocked task stops its project; the final notification reports the stopped project. There is no automatic infinite retry.
 - Dreamer is on demand, not a continuously running background agent.
 - Native notifications require the Windows notification permission; if denied, the in-app Alerts bell still works.
 - Git tasks require a clean repository and use worktrees; merge conflicts require manual resolution.

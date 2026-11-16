@@ -302,9 +302,12 @@ Opened the pets from the main topbar.
 - hover/click opens one shared comic speech bubble with name, role, status, current task, and latest activity
 - the main app does not open from a pet
 - bubble hides when the pointer leaves the pet, after 4 seconds, or via close
-- topbar Alerts shows pending review results; Review next opens the task sheet with Accept result, Reject result, and Edit task
+- autonomous task `Autonomous smoke` was queued with `autoStart:false`, started automatically, finished, auto-accepted, and appeared as done with no review gate
+- accepting a final task appends a project-complete report and sends the final desktop notification
+- manual review controls remain available as a fallback: Accept result, Reject result, Edit task
 - edit opens title, description, acceptance, priority, and owner fields; cancel leaves the task unchanged
-- accepting the final task appends a project-complete report and sends the desktop notification
+- Windows Run key contains Agent Bots pointing at the release executable (login autostart)
+- current project completion notification count and project-stopped detection were exercised
 - topbar `Pets` hides all nine windows; `Show pets` restores all nine and unhides motion
 - hidden pets pause movement; showing them resumes from the last position
 - closing the main window exits the app process and removes all pet windows

@@ -229,13 +229,9 @@ export function abortTask(taskId: string): Promise<boolean> {
 }
 
 export async function runDreamer(projectId: string): Promise<boolean> {
-  const project = app.snapshot?.projects.find((candidate) => candidate.id === projectId);
   app.dreamerRunning = true;
-  void notify("Dreamer started", `Consolidating memory for ${project?.key ?? projectId}`);
   try {
-    const ok = await runWorkforceAction(() => workforceDreamer(projectId));
-    if (ok) void notify("Dreamer finished", `Memory proposals updated for ${project?.key ?? projectId}`);
-    return ok;
+    return await runWorkforceAction(() => workforceDreamer(projectId));
   } finally {
     app.dreamerRunning = false;
   }
@@ -252,31 +248,28 @@ let syncTimer: ReturnType<typeof setTimeout> | undefined;
 
 function notifyTransitions(previous: Snapshot | null, next: Snapshot): void {
   if (!previous) return;
-  const previousTasks = new Map(previous.tasks.map((task) => [task.id, task]));
-  for (const task of next.tasks) {
-    const before = previousTasks.get(task.id);
-    const project = next.projects.find((candidate) => candidate.id === task.projectId);
-    const owner = next.agents.find((candidate) => candidate.id === task.ownerId);
-    const label = `${owner?.name ?? task.ownerId} · ${project?.key ?? task.projectId}`;
-    if (task.permission && !before?.permission) {
-      void notify("Approval needed", `${label}: ${task.title}`);
-    } else if (task.status === "review" && before?.status !== "review") {
-      void notify("Task ready for review", `${label}: ${task.title}`);
-    } else if (task.status === "blocked" && before?.status !== "blocked") {
-      void notify("Task needs attention", `${label}: ${task.title}`);
-    }
-  }
-
-  const completeProjects = next.projects.filter((project) => {
+  for (const project of next.projects) {
     const tasks = next.tasks.filter((task) => task.projectId === project.id);
-    return tasks.length > 0 && tasks.every((task) => task.status === "done");
-  });
-  for (const project of completeProjects) {
-    const wasComplete = previous.tasks
-      .filter((task) => task.projectId === project.id)
-      .every((task) => task.status === "done");
-    if (!wasComplete) {
+    if (tasks.length === 0) continue;
+    const before = previous.tasks.filter((task) => task.projectId === project.id);
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    const runnableQueued = tasks.some(
+      (task) =>
+        task.status === "queued" &&
+        (task.dependsOn ?? []).every((id) => byId.get(id)?.status === "done"),
+    );
+    const done = tasks.every((task) => task.status === "done");
+    const stopped =
+      tasks.some((task) => task.status === "blocked") &&
+      !tasks.some((task) => task.status === "running" || task.status === "review") &&
+      !runnableQueued;
+    const wasDone = before.length > 0 && before.every((task) => task.status === "done");
+    const wasStopped =
+      before.length > 0 && before.some((task) => task.status === "blocked");
+    if (done && !wasDone) {
       void notify("Project complete", `${project.key} · ${project.name}`);
+    } else if (stopped && !wasStopped) {
+      void notify("Project stopped", `${project.key} · ${project.name}`);
     }
   }
 }
@@ -287,8 +280,15 @@ async function syncNow(): Promise<void> {
   const previous = app.snapshot;
   try {
     await workforceTick();
-    const next = await workforcePoll();
+    let next = await workforcePoll();
     if (!next) return;
+    // Autonomous acceptance can finish a task during poll. Give the
+    // scheduler one immediate pass so the next dependency starts without
+    // waiting for the next polling interval.
+    if (next.tasks.some((task) => task.status === "queued")) {
+      await workforceTick();
+      next = await workforcePoll();
+    }
     app.snapshot = next;
     app.chat = next.chat ?? [];
     app.workforceError = null;
@@ -309,7 +309,8 @@ export function startWorkforceSync(): void {
   if (syncStarted || !workforceAvailable()) return;
   syncStarted = true;
   void listen<WorkforceEvent>("workforce-event", scheduleSync);
-  // SSE is volatile by contract; this slower pass recovers missed events.
+  // Start the autonomous loop immediately, then keep the fallback pass.
+  void syncNow();
   setInterval(() => void syncNow(), 15_000);
 }
 
