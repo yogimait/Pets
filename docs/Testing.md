@@ -312,6 +312,14 @@ Opened the pets from the main topbar.
 - launching the app while it is already running exits the second process, focuses the existing main window, and does not add another pen
 - topbar Pets re-shows the pen
 
+### Offline boot loop
+
+- launched the release app with no OpenCode target and no queued task
+- observed zero new PowerShell processes over the first 10 seconds
+- event listener now waits for a target, then uses 5–60 second backoff
+- CLI child processes use `CREATE_NO_WINDOW`; service startup retries 15 times at 1 second instead of 60 times at 250 ms
+- an offline task now fails into a blocked task instead of flashing terminals forever
+
 ### Packaged agents and installer
 
 - the release binary embeds the nine generated agents

@@ -6,7 +6,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone)]
 struct SharedTarget {
@@ -52,6 +57,13 @@ impl OpenCodeState {
         let mut guard = self.target.lock().map_err(|_| "Runtime lock poisoned".to_string())?;
         *guard = target;
         Ok(())
+    }
+
+    pub(crate) fn has_target(&self) -> bool {
+        self.target
+            .lock()
+            .map(|target| target.is_some())
+            .unwrap_or(false)
     }
 
     pub(crate) async fn mcp_status(&self, project: &str) -> Result<Value, String> {
@@ -197,17 +209,19 @@ fn config_home() -> PathBuf {
 }
 
 fn service_status_url() -> Option<String> {
-    let output = if cfg!(windows) {
-        Command::new("cmd")
+    #[cfg(windows)]
+    let output = {
+        let mut command = Command::new("cmd");
+        command
             .args(["/C", "opencode service status"])
-            .output()
-            .ok()?
-    } else {
-        Command::new("opencode")
-            .args(["service", "status"])
-            .output()
-            .ok()?
+            .creation_flags(CREATE_NO_WINDOW);
+        command.output().ok()?
     };
+    #[cfg(not(windows))]
+    let output = Command::new("opencode")
+        .args(["service", "status"])
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     text.lines()
         .map(str::trim)
@@ -242,11 +256,16 @@ fn discover_shared_service() -> Option<SharedTarget> {
 }
 
 fn start_shared_service() {
-    let mut command = if cfg!(windows) {
+    #[cfg(windows)]
+    let mut command = {
         let mut command = Command::new("cmd");
-        command.args(["/C", "opencode service start"]);
         command
-    } else {
+            .args(["/C", "opencode service start"])
+            .creation_flags(CREATE_NO_WINDOW);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
         let mut command = Command::new("opencode");
         command.args(["service", "start"]);
         command
@@ -263,8 +282,8 @@ fn connect_shared_service() -> Result<SharedTarget, String> {
     }
     debug_log("shared service not found; starting it");
     start_shared_service();
-    for _ in 0..60 {
-        std::thread::sleep(Duration::from_millis(250));
+    for _ in 0..15 {
+        std::thread::sleep(Duration::from_secs(1));
         if let Some(target) = discover_shared_service() {
             return Ok(target);
         }
@@ -374,11 +393,21 @@ async fn event_stream_once(app: &AppHandle, target: &SharedTarget) -> Result<(),
 }
 
 pub(crate) async fn run_event_listener(app: AppHandle) {
+    let mut offline_delay = 5u64;
     loop {
+        // Do not probe the OpenCode CLI during a cold boot with no network.
+        // A target is created only when the user starts runtime work; until
+        // then polling is unnecessary and can flash console terminals.
+        if !app.state::<OpenCodeState>().has_target() {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
+        }
         let Some(target) = discover_shared_service() else {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(Duration::from_secs(offline_delay)).await;
+            offline_delay = (offline_delay * 2).min(60);
             continue;
         };
+        offline_delay = 5;
         if let Err(error) = event_stream_once(&app, &target).await {
             debug_log(&format!("SSE disconnected: {error}"));
         }
