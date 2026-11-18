@@ -1,7 +1,8 @@
 ﻿<script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { X } from "@lucide/svelte";
+  import { LogicalSize } from "@tauri-apps/api/dpi";
+  import { ChevronDown, X } from "@lucide/svelte";
   import { app, init } from "../state/app.svelte.ts";
   import { PETS, type PetMeta } from "../pets.ts";
 
@@ -55,6 +56,18 @@
   let last = 0;
   let mounted = false;
 
+  // Collapsed mode: the pen shrinks to a draggable pill that reopens on click.
+  const COLLAPSED_WIDTH = 132;
+  const COLLAPSED_HEIGHT = 44;
+  const EXPANDED_MIN: [number, number] = [320, 220];
+  let collapsed = $state(false);
+  let downX = 0;
+  let downY = 0;
+
+  let runningCount = $derived(
+    app.snapshot?.tasks.filter((task) => task.status === "running").length ?? 0,
+  );
+
   let selectedPet = $derived(pets.find((pet) => pet.agentId === selected));
   let selectedAgent = $derived(
     app.snapshot?.agents.find((agent) => agent.id === selected) ?? null,
@@ -89,8 +102,47 @@
   }
 
   function startWindowDrag(event: PointerEvent) {
+    downX = event.clientX;
+    downY = event.clientY;
     if ((event.target as HTMLElement).closest("button")) return;
     void getCurrentWindow().startDragging();
+  }
+
+  async function applyCollapsed(next: boolean) {
+    const win = getCurrentWindow();
+    if (next) {
+      try {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        if (width > COLLAPSED_WIDTH && height > COLLAPSED_HEIGHT) {
+          localStorage.setItem("petpen-size", `${width}x${height}`);
+        }
+      } catch {
+        /* keep the last saved size */
+      }
+      await win.setMinSize(new LogicalSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT));
+      await win.setSize(new LogicalSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT));
+    } else {
+      await win.setMinSize(new LogicalSize(EXPANDED_MIN[0], EXPANDED_MIN[1]));
+      const saved = localStorage.getItem("petpen-size") ?? "600x420";
+      const [rawW, rawH] = saved.split("x").map(Number);
+      const width = Number.isFinite(rawW) && rawW >= EXPANDED_MIN[0] ? rawW : 600;
+      const height = Number.isFinite(rawH) && rawH >= EXPANDED_MIN[1] ? rawH : 420;
+      await win.setSize(new LogicalSize(width, height));
+    }
+    localStorage.setItem("petpen-collapsed", next ? "1" : "0");
+    collapsed = next;
+  }
+
+  function toggleCollapsed(event: MouseEvent) {
+    // Ignore the click that ends a header drag; only a still pointer toggles.
+    if (Math.hypot(event.clientX - downX, event.clientY - downY) > 6) return;
+    void applyCollapsed(!collapsed);
+  }
+
+  function expandFromPill(event: MouseEvent) {
+    if (Math.hypot(event.clientX - downX, event.clientY - downY) > 6) return;
+    void applyCollapsed(false);
   }
 
   function startResize(event: PointerEvent) {
@@ -169,6 +221,9 @@
       root.style.background = "transparent";
     }
     void init();
+    if (localStorage.getItem("petpen-collapsed") === "1") {
+      void applyCollapsed(true);
+    }
     last = performance.now();
     frame = requestAnimationFrame(tick);
   });
@@ -180,16 +235,57 @@
   });
 </script>
 
+{#if collapsed}
+  <div
+    role="button"
+    tabindex="0"
+    aria-label="Open pet pen"
+    onpointerdown={startWindowDrag}
+    onclick={expandFromPill}
+    onkeydown={(event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        void applyCollapsed(false);
+      }
+    }}
+    class="group grid h-full w-full cursor-move place-items-center select-none"
+  >
+    <span
+      class="flex items-center gap-2 rounded-full border border-white/25 bg-[#0a0b0d]/85 px-4 py-2 shadow-[0_4px_14px_rgba(0,0,0,0.5)] transition-colors group-hover:border-white/45"
+    >
+      <span class="text-[15px] leading-none" aria-hidden="true">🐾</span>
+      <span class="font-mono text-[10px] uppercase tracking-[0.16em] text-white/70">Pets</span>
+      {#if runningCount > 0}
+        <span
+          class="grid size-4 place-items-center rounded-full border border-white/25 bg-[#39d353] font-mono text-[9px] font-semibold text-black"
+          aria-label={`${runningCount} running`}
+        >{runningCount}</span>
+      {/if}
+      <ChevronDown size={12} strokeWidth={2.4} class="text-white/50" aria-hidden="true" />
+    </span>
+  </div>
+{:else}
 <div class="relative h-screen w-screen overflow-hidden rounded-lg border border-white/20 bg-[#0a0b0d]/25 text-ink shadow-[0_0_0_1px_rgba(0,0,0,0.4)]">
   <header
     role="toolbar"
-    tabindex="-1"
+    tabindex="0"
     aria-label="Pet pen window controls"
+    title="Click to collapse the pen"
     onpointerdown={startWindowDrag}
+    onclick={toggleCollapsed}
+    onkeydown={(event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        void applyCollapsed(true);
+      }
+    }}
     class="flex h-8 cursor-move select-none items-center justify-between border-b border-white/10 bg-[#0a0b0d]/70 px-2.5"
   >
     <span class="font-mono text-[9px] uppercase tracking-[0.16em] text-white/55">Pet pen</span>
-    <span class="font-mono text-[9px] text-white/35">drag to move · corner to resize</span>
+    <span class="flex items-center gap-1.5 font-mono text-[9px] text-white/35">
+      click header to collapse · drag to move · corner to resize
+      <ChevronDown size={11} strokeWidth={2.4} class="-rotate-180 text-white/50" aria-hidden="true" />
+    </span>
   </header>
 
   <div class="relative h-[calc(100%-2rem)] w-full">
@@ -263,6 +359,7 @@
     class="absolute bottom-0 right-0 z-30 size-5 cursor-nwse-resize border-b-2 border-r-2 border-white/30"
   ></button>
 </div>
+{/if}
 
 <style>
   :global(html),

@@ -324,6 +324,8 @@ Opened the pets from the main topbar.
 
 - one transparent 600x420 Pet pen window with nine 56x80 pixel sprites
 - pen header drags the enclosure; bottom-right corner resizes it down to 320x220
+- clicking the header (still pointer, no drag) collapses the pen into a 132x44 pill with a paw, a running-task badge, and a chevron; the pill drags and click/Enter reopens the last expanded size
+- the collapsed state is stored in localStorage and restored on the next launch
 - each agent has a distinct idle area and working area inside the pen
 - idle pets wander slowly with pauses; active pets move faster around the work area
 - dragging a sprite repositions it inside the pen
