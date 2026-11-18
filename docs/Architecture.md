@@ -156,7 +156,7 @@ Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` v
 
 The overlay has two modes:
 
-- **Chat**: real `workforce_send_start` plus `workforce_chat_poll` in Tauri; the browser preview cannot chat. The user turn is stored before the runtime starts, and assistant text is appended from OpenCode `session.text.delta` events while the turn runs. `workforce_chat_poll` is the fallback and stores the authoritative final reply exactly once. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
+- **Chat**: real `workforce_send_start` plus `workforce_chat_poll` in Tauri; the browser preview cannot chat. The user turn is stored before the runtime starts, the prompt waits up to 2 seconds for the SSE event stream to attach, and assistant text is appended from OpenCode `session.text.delta` events while the turn runs. `workforce_chat_poll` is the fallback and stores the authoritative final reply exactly once. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
 - **Plan & run**: real `workforce_plan`; creates queued tasks and returns a summary. The scheduler starts ready tasks automatically.
 
 Reference chips open the linked task, agent, or project in the main window. The overlay does not expose model or API configuration.

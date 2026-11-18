@@ -4,8 +4,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(windows)]
@@ -32,6 +33,7 @@ pub struct RuntimeInfo {
 pub struct OpenCodeState {
     client: Client,
     target: Mutex<Option<SharedTarget>>,
+    sse_connected: AtomicBool,
 }
 
 impl OpenCodeState {
@@ -42,6 +44,7 @@ impl OpenCodeState {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             target: Mutex::new(None),
+            sse_connected: AtomicBool::new(false),
         }
     }
 
@@ -64,6 +67,19 @@ impl OpenCodeState {
             .lock()
             .map(|target| target.is_some())
             .unwrap_or(false)
+    }
+
+    /// Chat prompts are posted only after the event stream is listening, so
+    /// the first text deltas are not lost on a cold service start.
+    pub(crate) async fn wait_for_event_stream(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if self.sse_connected.load(Ordering::Relaxed) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        self.sse_connected.load(Ordering::Relaxed)
     }
 
     pub(crate) async fn mcp_status(&self, project: &str) -> Result<Value, String> {
@@ -359,10 +375,21 @@ async fn event_stream_once(app: &AppHandle, target: &SharedTarget) -> Result<(),
     }
 
     debug_log("SSE connected");
+    app.state::<OpenCodeState>()
+        .sse_connected
+        .store(true, Ordering::Relaxed);
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     while let Some(chunk) = stream.next().await {
-        let bytes = chunk.map_err(|error| format!("SSE stream failed: {error}"))?;
+        let bytes = match chunk {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                app.state::<OpenCodeState>()
+                    .sse_connected
+                    .store(false, Ordering::Relaxed);
+                return Err(format!("SSE stream failed: {error}"));
+            }
+        };
         buffer.push_str(&String::from_utf8_lossy(&bytes).replace("\r\n", "\n").replace('\r', "\n"));
         for frame in drain_sse_frames(&mut buffer) {
             let Some(data) = sse_data(&frame) else {
@@ -408,6 +435,9 @@ async fn event_stream_once(app: &AppHandle, target: &SharedTarget) -> Result<(),
             let _ = app.emit("workforce-event", payload);
         }
     }
+    app.state::<OpenCodeState>()
+        .sse_connected
+        .store(false, Ordering::Relaxed);
     Ok(())
 }
 

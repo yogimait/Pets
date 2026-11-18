@@ -200,6 +200,7 @@ Two running tasks maximum, one per owner. Test tasks were removed afterward.
 - Text-delta events produced about twenty visible partial updates between 8.3s and 14.3s, instead of one final block.
 - `workforce_chat_poll` stored exactly one user turn and one assistant turn in SQLite.
 - Sending while a turn is pending is blocked, so two streams cannot target the same project.
+- The prompt waits up to 2 seconds for the SSE stream to attach after a cold service start, so the first deltas are not lost.
 
 To inspect it:
 

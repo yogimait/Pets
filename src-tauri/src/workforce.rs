@@ -852,6 +852,9 @@ pub async fn workforce_send_start(
     })?;
 
     runtime.ensure(&repo).await?;
+    // Give the global SSE listener a moment to attach so the first deltas are
+    // not lost when the service was cold; polling still covers a timeout.
+    let _ = runtime.wait_for_event_stream(Duration::from_secs(2)).await;
     let (provider_id, model_id) = model_config()?;
 
     let session_id = match store.session_for(&project_id) {
