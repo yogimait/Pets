@@ -1,5 +1,7 @@
+use crate::opencode::debug_log;
 use crate::opencode::OpenCodeState;
 use crate::{devvault_path, global_policy_path, now_ms};
+use base64::Engine;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -18,6 +20,7 @@ const IDLE_TIMEOUT_SECS: u64 = 180;
 const RUNNING_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 const PROMPT_BUDGET: usize = 20_000;
 const MAX_AUTO_PERMISSIONS: usize = 16;
+const MAX_AUTO_RETRIES: u64 = 2;
 const DEFAULT_MEMORY_THRESHOLD: f64 = 0.8;
 const KNOWN_MCP: &[&str] = &["playwright", "n8n-mcp", "stitch", "rea", "jev", "laya"];
 const MCP_STARTUP_WAIT: Duration = Duration::from_secs(20);
@@ -28,12 +31,25 @@ pub struct WorkforceStore {
     run_lock: AsyncMutex<()>,
     session_lock: AsyncMutex<()>,
     worktrees_root: PathBuf,
+    attachments_root: PathBuf,
 }
 
 /// Agent-level turns that are still streaming. The frontend polls the active
 /// turn and renders partial assistant text until the session goes idle.
-#[derive(Default)]
-pub struct ChatStreams(Mutex<HashMap<String, ChatStream>>);
+/// Turn state survives an app restart through the chat_stream SQLite table.
+pub struct ChatStreams {
+    map: Mutex<HashMap<String, ChatStream>>,
+    conn: Option<Mutex<Connection>>,
+}
+
+impl Default for ChatStreams {
+    fn default() -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+            conn: None,
+        }
+    }
+}
 
 struct ChatStream {
     session_id: String,
@@ -45,6 +61,119 @@ struct ChatStream {
 }
 
 impl ChatStreams {
+    pub fn new(db_path: PathBuf) -> Self {
+        let conn = Connection::open(&db_path).ok().and_then(|conn| {
+            conn.busy_timeout(Duration::from_secs(10)).ok()?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS chat_stream (
+                     project_id TEXT PRIMARY KEY,
+                     session_id TEXT NOT NULL,
+                     started_at INTEGER NOT NULL,
+                     done INTEGER NOT NULL DEFAULT 0,
+                     text TEXT NOT NULL DEFAULT ''
+                 );",
+            )
+            .ok()?;
+            Some(conn)
+        });
+        let mut map = HashMap::new();
+        if let Some(conn) = &conn {
+            if let Ok(mut statement) =
+                conn.prepare("SELECT project_id, session_id, started_at, done, text FROM chat_stream")
+            {
+                if let Ok(rows) = statement.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, u64>(2)?,
+                        row.get::<_, u64>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                }) {
+                    for row in rows.flatten() {
+                        let (project_id, session_id, started_at, done, text) = row;
+                        map.insert(
+                            project_id,
+                            ChatStream {
+                                session_id,
+                                started_at,
+                                done: done != 0,
+                                text,
+                                message_id: None,
+                                parts: HashMap::new(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        Self {
+            map: Mutex::new(map),
+            conn: conn.map(Mutex::new),
+        }
+    }
+
+    fn persist(&self, project_id: &str, stream: &ChatStream) {
+        let Some(conn) = &self.conn else { return };
+        let Ok(conn) = conn.lock() else { return };
+        let _ = conn.execute(
+            "INSERT INTO chat_stream (project_id, session_id, started_at, done, text)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(project_id) DO UPDATE SET
+                 session_id = excluded.session_id,
+                 started_at = excluded.started_at,
+                 done = excluded.done,
+                 text = excluded.text",
+            params![
+                project_id,
+                stream.session_id,
+                stream.started_at as i64,
+                stream.done as i64,
+                stream.text
+            ],
+        );
+    }
+
+    /// Ensure the in-memory map knows about a persisted turn. Returns true when
+    /// the project has a turn at all (done or not).
+    pub(crate) fn hydrate(&self, project_id: &str) -> bool {
+        if let Ok(map) = self.map.lock() {
+            if map.contains_key(project_id) {
+                return true;
+            }
+        }
+        let Some(conn) = &self.conn else { return false };
+        let Ok(conn) = conn.lock() else { return false };
+        let Ok(row) = conn.query_row(
+            "SELECT session_id, started_at, done, text FROM chat_stream WHERE project_id = ?1",
+            params![project_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u64>(1)?,
+                    row.get::<_, u64>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        ) else {
+            return false;
+        };
+        let (session_id, started_at, done, text) = row;
+        let stream = ChatStream {
+            session_id,
+            started_at,
+            done: done != 0,
+            text,
+            message_id: None,
+            parts: HashMap::new(),
+        };
+        drop(conn);
+        if let Ok(mut map) = self.map.lock() {
+            map.insert(project_id.to_string(), stream);
+        }
+        true
+    }
+
     /// Apply an OpenCode text event to the matching project's active turn.
     /// Events are ignored once the turn is stored or when they predate it.
     pub(crate) fn absorb_text_event(
@@ -57,7 +186,7 @@ impl ChatStreams {
         full_text: Option<&str>,
         created: u64,
     ) {
-        let Ok(mut guard) = self.0.lock() else {
+        let Ok(mut guard) = self.map.lock() else {
             return;
         };
         let Some(stream) = guard.values_mut().find(|stream| {
@@ -116,6 +245,12 @@ impl WorkforceStore {
             .unwrap_or_else(|| PathBuf::from("worktrees"));
         fs::create_dir_all(&worktrees_root)
             .map_err(|error| format!("Could not create worktree directory: {error}"))?;
+        let attachments_root = path
+            .parent()
+            .map(|parent| parent.join("attachments"))
+            .unwrap_or_else(|| PathBuf::from("attachments"));
+        fs::create_dir_all(&attachments_root)
+            .map_err(|error| format!("Could not create attachment directory: {error}"))?;
         let conn = Connection::open(&path)
             .map_err(|error| format!("Could not open workforce database: {error}"))?;
         conn.busy_timeout(Duration::from_secs(10))
@@ -126,15 +261,41 @@ impl WorkforceStore {
                  id INTEGER PRIMARY KEY CHECK (id = 1),
                  json TEXT NOT NULL,
                  updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS chat_sessions (
+                 project_id TEXT PRIMARY KEY,
+                 session_id TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS chat_stream (
+                 project_id TEXT PRIMARY KEY,
+                 session_id TEXT NOT NULL,
+                 started_at INTEGER NOT NULL,
+                 done INTEGER NOT NULL DEFAULT 0,
+                 text TEXT NOT NULL DEFAULT ''
              );",
         )
         .map_err(|error| format!("Could not prepare workforce database: {error}"))?;
+        let mut sessions = HashMap::new();
+        {
+            let mut statement = conn
+                .prepare("SELECT project_id, session_id FROM chat_sessions")
+                .map_err(|error| format!("Could not read chat sessions: {error}"))?;
+            let rows = statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+                .map_err(|error| format!("Could not read chat sessions: {error}"))?;
+            for row in rows {
+                let (project_id, session_id) = row
+                    .map_err(|error| format!("Could not read chat sessions: {error}"))?;
+                sessions.insert(project_id, session_id);
+            }
+        }
         Ok(Self {
             conn: Mutex::new(conn),
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(sessions),
             run_lock: AsyncMutex::new(()),
             session_lock: AsyncMutex::new(()),
             worktrees_root,
+            attachments_root,
         })
     }
 
@@ -212,12 +373,76 @@ impl WorkforceStore {
         if let Ok(mut map) = self.sessions.lock() {
             map.insert(project_id.to_string(), session_id.to_string());
         }
+        let Ok(conn) = self.conn.lock() else {
+            return;
+        };
+        let _ = conn.execute(
+            "INSERT INTO chat_sessions (project_id, session_id) VALUES (?1, ?2)
+             ON CONFLICT(project_id) DO UPDATE SET session_id = excluded.session_id",
+            params![project_id, session_id],
+        );
     }
 
     fn forget_session(&self, project_id: &str) {
         if let Ok(mut map) = self.sessions.lock() {
             map.remove(project_id);
         }
+        let Ok(conn) = self.conn.lock() else {
+            return;
+        };
+        let _ = conn.execute("DELETE FROM chat_sessions WHERE project_id = ?1", params![project_id]);
+    }
+
+    /// Read attachment bytes from disk. Only paths inside the attachments
+    /// directory are accepted; anything else is a trust boundary violation.
+    fn read_attachment(&self, path: &str) -> Result<Vec<u8>, String> {
+        let path = PathBuf::from(path);
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| format!("Attachment is not readable: {error}"))?;
+        let root = self
+            .attachments_root
+            .canonicalize()
+            .unwrap_or_else(|_| self.attachments_root.clone());
+        if !canonical.starts_with(&root) {
+            return Err("Attachment path is outside the app data directory.".to_string());
+        }
+        fs::read(&canonical).map_err(|error| format!("Attachment is not readable: {error}"))
+    }
+
+    /// Store one base64 attachment on disk and return its chat metadata.
+    fn store_attachment(
+        &self,
+        index: usize,
+        at: u64,
+        data: &str,
+        mime: &str,
+        name: &str,
+    ) -> Result<Value, String> {
+        let mime = mime.trim().to_ascii_lowercase();
+        let extension = match mime.as_str() {
+            "image/png" => "png",
+            "image/jpeg" | "image/jpg" => "jpg",
+            "image/webp" => "webp",
+            "image/gif" => "gif",
+            _ => return Err(format!("Unsupported attachment type {mime:?}; use png, jpeg, webp, or gif.")),
+        };
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data.trim())
+            .map_err(|_| "Attachment data is not valid base64.".to_string())?;
+        if bytes.len() > 8 * 1024 * 1024 {
+            return Err("Attachment is larger than 8 MB.".to_string());
+        }
+        let id = format!("att-{at}-{index}");
+        let path = self.attachments_root.join(format!("{id}.{extension}"));
+        fs::write(&path, &bytes)
+            .map_err(|error| format!("Could not store attachment: {error}"))?;
+        Ok(json!({
+            "id": id,
+            "name": name,
+            "mime": mime,
+            "path": path.to_string_lossy()
+        }))
     }
 }
 
@@ -573,8 +798,16 @@ pub async fn workforce_plan(
     project_id: String,
     goal: String,
 ) -> Result<Value, String> {
-    let store = store.inner();
-    let runtime = runtime.inner();
+    let (summary, tasks) = execute_plan(store.inner(), runtime.inner(), &project_id, &goal).await?;
+    Ok(json!({ "summary": summary, "tasks": tasks }))
+}
+
+async fn execute_plan(
+    store: &WorkforceStore,
+    runtime: &OpenCodeState,
+    project_id: &str,
+    goal: &str,
+) -> Result<(String, Vec<Value>), String> {
     let snapshot = snapshot_value(store)?;
     let project = get_project(&snapshot, &project_id)?.clone();
     let repo = repo_path(&project)?;
@@ -752,7 +985,7 @@ pub async fn workforce_plan(
         Ok(())
     })?;
 
-    Ok(json!({ "summary": summary_for_write, "tasks": planned }))
+    Ok((summary_for_write, planned))
 }
 
 #[tauri::command]
@@ -795,7 +1028,7 @@ pub async fn workforce_send(
         }
     };
 
-    if let Err(error) = prompt_and_wait(runtime, &session_id, &prompt).await {
+    if let Err(error) = prompt_and_wait(runtime, &session_id, &prompt, Vec::new()).await {
         store.forget_session(&project_id);
         return Err(provider_failure_message(&provider_id, &model_id, &error));
     }
@@ -829,6 +1062,7 @@ pub async fn workforce_send_start(
     streams: State<'_, ChatStreams>,
     project_id: String,
     text: String,
+    attachments: Option<Vec<Value>>,
 ) -> Result<Value, String> {
     let store = store.inner();
     let runtime = runtime.inner();
@@ -846,8 +1080,27 @@ pub async fn workforce_send_start(
 
     // Persist the operator turn before starting the runtime so a refresh while
     // the service wakes up cannot erase the message they just sent.
+    let attachment_meta: Vec<Value> = attachments
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .take(4)
+        .filter_map(|(index, input)| {
+            let data = input.get("data").and_then(Value::as_str)?;
+            let mime = input.get("mime").and_then(Value::as_str)?;
+            let name = input.get("name").and_then(Value::as_str).unwrap_or("image");
+            match store.store_attachment(index, now_ms(), data, mime, name) {
+                Ok(meta) => Some(meta),
+                Err(error) => {
+                    debug_log(&format!("attachment rejected: {error}"));
+                    None
+                }
+            }
+        })
+        .collect();
+    let attachment_meta_for_write = attachment_meta.clone();
     store.update(|value| {
-        push_chat(value, "user", &text, refs);
+        push_chat_with_attachments(value, "user", &text, refs, attachment_meta_for_write);
         Ok(())
     })?;
 
@@ -880,29 +1133,47 @@ pub async fn workforce_send_start(
     };
 
     let started_at = now_ms();
+    let mut prompt_body = json!({ "text": prompt });
+    if !attachment_meta.is_empty() {
+        let mut files = Vec::new();
+        for meta in &attachment_meta {
+            let Some(path) = meta.get("path").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(bytes) = store.read_attachment(path) else {
+                continue;
+            };
+            files.push(json!({
+                "uri": format!("data:{};base64,{}", meta["mime"], base64::engine::general_purpose::STANDARD.encode(bytes)),
+                "name": meta["name"]
+            }));
+        }
+        if !files.is_empty() {
+            prompt_body["files"] = json!(files);
+        }
+    }
     runtime
         .post_json(
             &format!("/api/session/{session_id}/prompt"),
-            json!({ "text": prompt }),
+            prompt_body,
         )
         .await
         .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
 
-    let mut guard = streams
-        .0
+    let stream = ChatStream {
+        session_id: session_id.clone(),
+        started_at,
+        done: false,
+        text: String::new(),
+        message_id: None,
+        parts: HashMap::new(),
+    };
+    streams.persist(&project_id, &stream);
+    streams
+        .map
         .lock()
-        .map_err(|_| "Chat stream lock poisoned".to_string())?;
-    guard.insert(
-        project_id.clone(),
-        ChatStream {
-            session_id: session_id.clone(),
-            started_at,
-            done: false,
-            text: String::new(),
-            message_id: None,
-            parts: HashMap::new(),
-        },
-    );
+        .map_err(|_| "Chat stream lock poisoned".to_string())?
+        .insert(project_id.clone(), stream);
 
     Ok(json!({ "sessionId": session_id, "projectId": project_id }))
 }
@@ -916,9 +1187,21 @@ pub async fn workforce_chat_poll(
 ) -> Result<Value, String> {
     let store = store.inner();
     let runtime = runtime.inner();
+    if !streams.hydrate(&project_id) {
+        return Err("No orchestrator turn is streaming for this project.".to_string());
+    }
+    // A resumed turn can outlive the process: reconnect to the runtime before
+    // reading the session, mirroring what send_start does on a fresh turn.
+    if !runtime.has_target() {
+        let snapshot = snapshot_value(store)?;
+        let project = get_project(&snapshot, &project_id)?.clone();
+        let repo = repo_path(&project)?;
+        runtime.ensure(&repo).await?;
+        let _ = runtime.wait_for_event_stream(Duration::from_secs(2)).await;
+    }
     let (session_id, started_at, done, stored_text, streamed) = {
         let guard = streams
-            .0
+            .map
             .lock()
             .map_err(|_| "Chat stream lock poisoned".to_string())?;
         let stream = guard
@@ -971,8 +1254,32 @@ pub async fn workforce_chat_poll(
     } else {
         partial
     };
+    let (reply, action) = extract_chat_action(&reply);
+    let mut extra_refs: Vec<Value> = Vec::new();
+    let mut action_note: Option<String> = None;
+    if let Some(action) = action {
+        match apply_chat_action(store, runtime, &project_id, &action).await {
+            Ok(ChatActionResult::TaskCreated { id, title }) => {
+                extra_refs.push(json!({ "kind": "task", "id": id, "label": title }));
+            }
+            Ok(ChatActionResult::Planned { summary, count }) => {
+                action_note = Some(format!("(Plan executed: {summary} — {count} tasks queued.)"));
+            }
+            Ok(ChatActionResult::Retried { id, title }) => {
+                extra_refs.push(json!({ "kind": "task", "id": id, "label": title }));
+                action_note = Some(format!("(Task {title} requeued.)"));
+            }
+            Err(error) => {
+                action_note = Some(format!("(Chat action failed: {error})"));
+            }
+        }
+    }
+    let reply = match action_note {
+        Some(note) => format!("{reply}\n\n{note}"),
+        None => reply,
+    };
     let mut guard = streams
-        .0
+        .map
         .lock()
         .map_err(|_| "Chat stream lock poisoned".to_string())?;
     let Some(stream) = guard.get_mut(&project_id) else {
@@ -989,19 +1296,268 @@ pub async fn workforce_chat_poll(
                 .map(project_label)
         })
         .unwrap_or_else(|| project_id.clone());
+    let mut refs = vec![json!({ "kind": "project", "id": project_id, "label": label })];
+    refs.extend(extra_refs);
+    let reply_for_write = reply.clone();
     store.update(|value| {
-        push_chat(
-            value,
-            "orchestrator",
-            &reply,
-            vec![json!({ "kind": "project", "id": project_id, "label": label })],
-        );
+        push_chat(value, "orchestrator", &reply_for_write, refs);
         Ok(())
     })?;
     stream.done = true;
     stream.text = reply.clone();
+    streams.persist(&project_id, stream);
 
     Ok(json!({ "text": reply, "done": true }))
+}
+
+#[tauri::command]
+pub async fn workforce_chat_resume(
+    streams: State<'_, ChatStreams>,
+    project_id: String,
+) -> Result<Value, String> {
+    if !streams.hydrate(&project_id) {
+        return Ok(json!({ "active": false }));
+    }
+    let active = streams
+        .map
+        .lock()
+        .map_err(|_| "Chat stream lock poisoned".to_string())?
+        .get(&project_id)
+        .map(|stream| !stream.done)
+        .unwrap_or(false);
+    Ok(json!({ "active": active }))
+}
+
+/// Read stored attachment bytes back for rendering. Only files inside the
+/// attachments directory are reachable.
+#[tauri::command]
+pub fn workforce_attachment_data(
+    store: State<'_, WorkforceStore>,
+    path: String,
+) -> Result<Value, String> {
+    use base64::Engine;
+    let store = store.inner();
+    let bytes = store.read_attachment(&path)?;
+    Ok(json!({
+        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+    }))
+}
+
+enum ChatActionResult {
+    TaskCreated { id: String, title: String },
+    Planned { summary: String, count: usize },
+    Retried { id: String, title: String },
+}
+
+async fn apply_chat_action(
+    store: &WorkforceStore,
+    runtime: &OpenCodeState,
+    project_id: &str,
+    action: &Value,
+) -> Result<ChatActionResult, String> {
+    match action.get("action").and_then(Value::as_str).unwrap_or("") {
+        "create_task" => {
+            let snapshot = snapshot_value(store)?;
+            get_project(&snapshot, project_id)?;
+            let owners = available_owners(&snapshot);
+            let requested_owner = action
+                .get("ownerId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            let owner = owners
+                .iter()
+                .find(|owner| owner.as_str() == requested_owner)
+                .cloned()
+                .or_else(|| owners.first().cloned())
+                .ok_or_else(|| "No specialist owner is available.".to_string())?;
+            let title: String = action
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .chars()
+                .take(120)
+                .collect();
+            if title.is_empty() {
+                return Err("create_task needs a title.".to_string());
+            }
+            let description: String = action
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .unwrap_or(&title)
+                .chars()
+                .take(4_000)
+                .collect();
+            let acceptance = action
+                .get("acceptance")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let at = now_ms();
+            let mut id = format!("t-{at}-chat");
+            let mut suffix = 0;
+            while snapshot
+                .get("tasks")
+                .and_then(Value::as_array)
+                .map(|tasks| {
+                    tasks
+                        .iter()
+                        .any(|task| task.get("id").and_then(Value::as_str) == Some(&id))
+                })
+                .unwrap_or(false)
+            {
+                suffix += 1;
+                id = format!("t-{at}-chat-{suffix}");
+            }
+            let id_for_closure = id.clone();
+            let title_for_closure = title.clone();
+            let owner_for_closure = owner.clone();
+            let description_for_closure = description.clone();
+            let acceptance_for_closure = acceptance.clone();
+            let next = store.update(|value| {
+                let task = json!({
+                    "id": id_for_closure,
+                    "title": title_for_closure,
+                    "description": description_for_closure,
+                    "status": "queued",
+                    "priority": "normal",
+                    "projectId": project_id,
+                    "ownerId": owner_for_closure,
+                    "notes": "",
+                    "tags": ["chat"],
+                    "createdAt": at,
+                    "updatedAt": at,
+                    "steps": [],
+                    "messages": [],
+                    "acceptance": acceptance_for_closure,
+                    "dependsOn": [],
+                    "autoStart": true,
+                    "sessionId": null,
+                    "result": null
+                });
+                if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
+                    tasks.push(task);
+                }
+                push_activity(
+                    value,
+                    "delegation",
+                    "orchestrator",
+                    Some(project_id),
+                    Some(&id_for_closure),
+                    &format!("created task \"{title_for_closure}\" for {owner_for_closure} from chat"),
+                    None,
+                );
+                Ok(())
+            })?;
+            let task = find_task(&next, &id)
+                .ok_or_else(|| "Created task is missing from the snapshot.".to_string())?;
+            Ok(ChatActionResult::TaskCreated {
+                id,
+                title: task
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        }
+        "plan" => {
+            let goal = action
+                .get("goal")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if goal.is_empty() {
+                return Err("plan needs a goal.".to_string());
+            }
+            let (summary, tasks) = execute_plan(store, runtime, project_id, goal).await?;
+            Ok(ChatActionResult::Planned {
+                summary,
+                count: tasks.len(),
+            })
+        }
+        "retry_task" => {
+            let task_id = action
+                .get("taskId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if task_id.is_empty() {
+                return Err("retry_task needs a taskId.".to_string());
+            }
+            let project_for_closure = project_id.to_string();
+            let next = store.update(|value| {
+                let task = find_task_mut(value, task_id)
+                    .ok_or_else(|| format!("Unknown task: {task_id}"))?;
+                if task.get("projectId").and_then(Value::as_str) != Some(&project_for_closure) {
+                    return Err("Task belongs to a different project.".to_string());
+                }
+                if task.get("status").and_then(Value::as_str) != Some("blocked") {
+                    return Err("Only a blocked task can be retried.".to_string());
+                }
+                let title = task["title"].as_str().unwrap_or("").to_string();
+                task["status"] = json!("queued");
+                task["permission"] = Value::Null;
+                task["sessionId"] = Value::Null;
+                task["updatedAt"] = json!(now_ms());
+                append_note(task, "Requeued by the orchestrator from chat.");
+                let id = task["id"].as_str().unwrap_or("").to_string();
+                push_activity(
+                    value,
+                    "status",
+                    "orchestrator",
+                    Some(&project_for_closure),
+                    Some(&id),
+                    &format!("requeued blocked task \"{title}\" from chat"),
+                    None,
+                );
+                Ok(())
+            })?;
+            let task = find_task(&next, task_id)
+                .ok_or_else(|| "Requeued task is missing from the snapshot.".to_string())?;
+            Ok(ChatActionResult::Retried {
+                id: task_id.to_string(),
+                title: task
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        }
+        other => Err(format!("Unknown chat action {other:?}.")),
+    }
+}
+
+/// Pull a trailing ```agent-bots {json}``` action block out of a reply.
+/// Returns the reply without the block and the parsed action, if any.
+fn extract_chat_action(reply: &str) -> (String, Option<Value>) {
+    const MARKER: &str = "```agent-bots";
+    let Some(start) = reply.find(MARKER) else {
+        return (reply.to_string(), None);
+    };
+    let after = &reply[start + MARKER.len()..];
+    let end = after.find("```").unwrap_or(after.len());
+    let mut body = after[..end].trim();
+    if let Some(stripped) = body.strip_prefix("json") {
+        body = stripped.trim();
+    }
+    let Some(action) = serde_json::from_str::<Value>(body).ok() else {
+        return (reply.to_string(), None);
+    };
+    if action.get("action").and_then(Value::as_str).is_none() {
+        return (reply.to_string(), None);
+    }
+    let mut clean = reply[..start].trim_end().to_string();
+    if end + 3 <= after.len() {
+        let rest = after[end + 3..].trim();
+        if !rest.is_empty() {
+            clean = format!("{clean}\n{rest}");
+        }
+    }
+    (clean.trim().to_string(), Some(action))
 }
 
 #[tauri::command]
@@ -1029,7 +1585,7 @@ pub async fn workforce_tick(
                     && !error.contains("has unfinished dependencies") =>
             {
                 store.update(|value| {
-                    mark_blocked(
+                    mark_failure(
                         value,
                         &task_id,
                         &format!("Could not start the task: {error}"),
@@ -1084,7 +1640,7 @@ pub async fn workforce_poll(
             None => {
                 if now_ms().saturating_sub(started) > 60_000 {
                     store.update(|value| {
-                        mark_blocked(value, &task_id, "Task session was not created.");
+                        mark_failure(value, &task_id, "Task session was not created.");
                         Ok(())
                     })?;
                 }
@@ -1107,7 +1663,7 @@ pub async fn workforce_poll(
         };
         if let Err(error) = runtime.ensure(&repo).await {
             store.update(|value| {
-                mark_blocked(
+                mark_failure(
                     value,
                     &task_id,
                     &format!("OpenCode unavailable while checking the session: {error}"),
@@ -1124,7 +1680,7 @@ pub async fn workforce_poll(
             Ok(value) => unwrap_data(value),
             Err(error) => {
                 store.update(|value| {
-                    mark_blocked(value, &task_id, &format!("Session check failed: {error}"));
+                    mark_failure(value, &task_id, &format!("Session check failed: {error}"));
                     Ok(())
                 })?;
                 continue;
@@ -1138,7 +1694,7 @@ pub async fn workforce_poll(
             Ok(value) => value,
             Err(error) => {
                 store.update(|value| {
-                    mark_blocked(value, &task_id, &format!("Permission check failed: {error}"));
+                    mark_failure(value, &task_id, &format!("Permission check failed: {error}"));
                     Ok(())
                 })?;
                 continue;
@@ -1250,7 +1806,7 @@ pub async fn workforce_poll(
 
         if let Some(error) = session_error(&session) {
             store.update(|value| {
-                mark_blocked(value, &task_id, &format!("Session ended with an error: {error}"));
+                mark_failure(value, &task_id, &format!("Session ended with an error: {error}"));
                 Ok(())
             })?;
             continue;
@@ -1265,7 +1821,7 @@ pub async fn workforce_poll(
             Ok(value) => value,
             Err(error) => {
                 store.update(|value| {
-                    mark_blocked(value, &task_id, &format!("Could not read session messages: {error}"));
+                    mark_failure(value, &task_id, &format!("Could not read session messages: {error}"));
                     Ok(())
                 })?;
                 continue;
@@ -1625,7 +2181,18 @@ pub async fn workforce_dreamer(
     let repo = repo_path(&project)?;
     let prompt = dreamer_prompt(&snapshot, &project);
     let title = format!("{} · Dreamer", project_label(&project));
-    let (_session_id, text) = run_once(runtime, &repo, &title, "dreamer", &prompt, None).await?;
+    // Give Dreamer the images the operator recently shared in project chat so
+    // its observations come from the raw picture, not a summary of one.
+    let (_session_id, text) = run_once_with_files(
+        runtime,
+        &repo,
+        &title,
+        "dreamer",
+        &prompt,
+        None,
+        dreamer_image_files(store, &snapshot, &project_id, 4),
+    )
+    .await?;
     let parsed = extract_json_object(&text)
         .ok_or_else(|| "Dreamer did not return a JSON object.".to_string())?;
 
@@ -1901,6 +2468,18 @@ async fn run_once(
     prompt: &str,
     permissions: Option<Value>,
 ) -> Result<(String, String), String> {
+    run_once_with_files(runtime, project, title, agent, prompt, permissions, Vec::new()).await
+}
+
+async fn run_once_with_files(
+    runtime: &OpenCodeState,
+    project: &str,
+    title: &str,
+    agent: &str,
+    prompt: &str,
+    permissions: Option<Value>,
+    files: Vec<Value>,
+) -> Result<(String, String), String> {
     require_policy(project)?;
     runtime.ensure(project).await?;
     let (provider_id, model_id) = model_config()?;
@@ -1917,7 +2496,7 @@ async fn run_once(
     .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
     let session_id = session_id_of(&session)
         .ok_or_else(|| "OpenCode did not return a session id.".to_string())?;
-    prompt_and_wait(runtime, &session_id, prompt)
+    prompt_and_wait(runtime, &session_id, prompt, files)
         .await
         .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
     let messages = runtime
@@ -1955,12 +2534,17 @@ async fn prompt_and_wait(
     runtime: &OpenCodeState,
     session_id: &str,
     prompt: &str,
+    files: Vec<Value>,
 ) -> Result<(), String> {
     let started = now_ms();
+    let mut body = json!({ "text": prompt });
+    if !files.is_empty() {
+        body["files"] = json!(files);
+    }
     runtime
         .post_json(
             &format!("/api/session/{session_id}/prompt"),
-            json!({ "text": prompt }),
+            body,
         )
         .await?;
     let deadline = Instant::now() + Duration::from_secs(IDLE_TIMEOUT_SECS);
@@ -2543,6 +3127,66 @@ fn mark_blocked(snapshot: &mut Value, task_id: &str, note: &str) {
     );
 }
 
+/// Transient failures deserve one automatic requeue: network blips, service
+/// gaps, and timeouts. Credential, quota, policy, and merge failures do not.
+fn is_transient_failure(note: &str) -> bool {
+    let lower = note.to_ascii_lowercase();
+    const PERMANENT: &[&str] = &[
+        "401", "402", "unauthorized", "credential", "balance", "quota",
+        "insufficient", "permission denied", "policy", "merge", "conflict",
+        "destructive", "worktree",
+    ];
+    if PERMANENT.iter().any(|needle| lower.contains(needle)) {
+        return false;
+    }
+    const TRANSIENT: &[&str] = &[
+        "opencode unavailable", "did not become ready", "request failed",
+        "connection", "timeout", "timed out", "did not become idle",
+        "session check failed", "could not read session messages",
+        "permission check failed", "temporarily", "502", "503", "504",
+    ];
+    TRANSIENT.iter().any(|needle| lower.contains(needle))
+}
+
+/// Block a running task, or requeue it when the failure looks transient and
+/// the retry budget is not spent. The scheduler restarts a requeued task.
+fn mark_failure(snapshot: &mut Value, task_id: &str, note: &str) {
+    let status = find_task(snapshot, task_id)
+        .and_then(|task| task.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let retries = find_task(snapshot, task_id)
+        .and_then(|task| task.get("retryCount"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if status == "running" && retries < MAX_AUTO_RETRIES && is_transient_failure(note) {
+        let (owner, project_id, title) = task_meta(snapshot, task_id);
+        if let Some(task) = find_task_mut(snapshot, task_id) {
+            task["status"] = json!("queued");
+            task["sessionId"] = Value::Null;
+            task["permission"] = Value::Null;
+            task["retryCount"] = json!(retries + 1);
+            task["updatedAt"] = json!(now_ms());
+            append_note(
+                task,
+                &format!("Auto-retry {}/{}: {note}", retries + 1, MAX_AUTO_RETRIES),
+            );
+        }
+        clear_agent_current_task(snapshot, &owner, task_id);
+        push_activity(
+            snapshot,
+            "status",
+            &owner,
+            Some(&project_id),
+            Some(task_id),
+            &format!("auto-retry {}/{} for {title}", retries + 1, MAX_AUTO_RETRIES),
+            Some(note),
+        );
+        return;
+    }
+    mark_blocked(snapshot, task_id, note);
+}
+
 fn task_meta(snapshot: &Value, task_id: &str) -> (String, String, String) {
     find_task(snapshot, task_id)
         .map(|task| {
@@ -2669,6 +3313,7 @@ fn normalize_proposal(value: &Value, project_id: &str, at: u64, index: usize) ->
         Some("doc") => "doc",
         Some("result") => "result",
         Some("convention") => "convention",
+        Some("observation") => "observation",
         _ => "reference",
     };
     let confidence = value
@@ -2819,8 +3464,9 @@ fn send_prompt(snapshot: &Value, project: &Value, text: &str) -> String {
     if lines.is_empty() {
         lines.push("(no earlier messages)".to_string());
     }
+    let owners = available_owners_with_names(snapshot);
     format!(
-        "{}\n\nTask board:\n{}\n\nApproved project memory:\n{}\n\nRecent conversation:\n{}\n\nUser:\n{}\n\nReply as the orchestrator. Be concrete, short, and honest about what is simulated or not run. You cannot run, accept, or retry tasks from chat; tell the operator to use Tasks and the Accept result button when a result is waiting for review. Do not claim a task is blocked by a permission unless the task board actually shows a blocked task or the task has a permission request.",
+        "{}\n\nTask board:\n{}\n\nApproved project memory:\n{}\n\nRecent conversation:\n{}\n\nUser:\n{}\n\nReply as the orchestrator. Be concrete, short, and honest about what is simulated or not run. Do not claim a task is blocked by a permission unless the task board actually shows a blocked task or the task has a permission request. The app auto-accepts finished results; tell the operator only when a result needs a human decision.\n\nYou can act on work directly. When the operator asks you to create, plan, or retry work, end your reply with exactly one fenced block like:\n\n```agent-bots\n{{\"action\":\"create_task\",\"title\":\"short title\",\"description\":\"what to do\",\"ownerId\":\"pixel\",\"acceptance\":\"how to verify\"}}\n```\n\nOther actions: {{\"action\":\"plan\",\"goal\":\"...\"}} to plan several tasks, and {{\"action\":\"retry_task\",\"taskId\":\"t-...\"}} to requeue a blocked task from the board. Valid ownerId values: {owners}. Map the operator's words to an id — e.g. a person name maps to their agent id. Use create_task for one deliverable, plan for multi-step work. Put the fenced block at the very end and use it only when the operator clearly asked for work; otherwise answer normally. The app executes the block; never claim work was created without one. Image attachments sent with a message are visible to you; describe what matters from them.",
         project_context(project),
         tasks,
         if memory.is_empty() { "(none)".to_string() } else { memory },
@@ -3094,13 +3740,63 @@ fn dreamer_prompt(snapshot: &Value, project: &Value) -> String {
     let project_markdown = markdown_context(repo, 12_000);
     let vault_context = devvault_project_context(project);
     format!(
-        "{}\n\n# Project markdown\n\n{}\n\n# DevVault context\n\n{}\n\nCompleted or review tasks:\n{}\n\nExisting memory:\n{}\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"findings\":[\"fact\"],\"proposals\":[{{\"action\":\"add\",\"scope\":\"project\",\"kind\":\"decision\",\"title\":\"short title\",\"content\":\"durable fact\",\"reason\":\"why it matters\",\"evidence\":[\"task id or file\"],\"confidence\":0.8,\"targetEntryId\":null}}]}}\n\nRules:\n- One proposal per durable fact.\n- Evidence is required.\n- Allowed kinds: decision, reference, doc, result, convention.\n- Allowed actions: add, update, delete, merge.\n- Never include secrets, credentials, or raw logs.\n- Prefer evidence from the database and the supplied markdown context.\n- If something is missing, use read-only tools to inspect the repository or DevVault hub; do not invent context.\n- If nothing durable was found, return empty arrays.",
+        "{}\n\n# Project markdown\n\n{}\n\n# DevVault context\n\n{}\n\nCompleted or review tasks:\n{}\n\nExisting memory:\n{}\n\nThe prompt may carry image attachments the operator shared in project chat. Inspect each image directly. Durable visual facts (schema diagrams, screenshots of recurring errors, layout decisions) belong in memory with kind \"observation\" and evidence naming the image file.\n\nReturn ONLY a JSON object. No prose, no markdown fences.\n{{\"findings\":[\"fact\"],\"proposals\":[{{\"action\":\"add\",\"scope\":\"project\",\"kind\":\"decision\",\"title\":\"short title\",\"content\":\"durable fact\",\"reason\":\"why it matters\",\"evidence\":[\"task id or file\"],\"confidence\":0.8,\"targetEntryId\":null}}]}}\n\nRules:\n- One proposal per durable fact.\n- Evidence is required.\n- Allowed kinds: decision, reference, doc, result, convention, observation.\n- Allowed actions: add, update, delete, merge.\n- Never include secrets, credentials, or raw logs.\n- Prefer evidence from the database and the supplied markdown context.\n- If something is missing, use read-only tools to inspect the repository or DevVault hub; do not invent context.\n- If nothing durable was found, return empty arrays.",
         project_context(project),
         if project_markdown.is_empty() { "(none)".to_string() } else { project_markdown },
         vault_context,
         if tasks.is_empty() { "(none)".to_string() } else { tasks.join("\n") },
         if memory.is_empty() { "(none)".to_string() } else { memory.join("\n") }
     )
+}
+
+/// Collect the newest image attachments from a project's chat as prompt files.
+fn dreamer_image_files(
+    store: &WorkforceStore,
+    snapshot: &Value,
+    project_id: &str,
+    limit: usize,
+) -> Vec<Value> {
+    let mut files = Vec::new();
+    let Some(chat) = snapshot.get("chat").and_then(Value::as_array) else {
+        return files;
+    };
+    for message in chat.iter().rev() {
+        if files.len() >= limit {
+            break;
+        }
+        if message.get("role").and_then(Value::as_str) != Some("user") {
+            continue;
+        }
+        if !chat_message_in_project(snapshot, message, project_id) {
+            continue;
+        }
+        let Some(attachments) = message.get("attachments").and_then(Value::as_array) else {
+            continue;
+        };
+        for attachment in attachments {
+            if files.len() >= limit {
+                break;
+            }
+            let (Some(path), Some(mime)) = (
+                attachment.get("path").and_then(Value::as_str),
+                attachment.get("mime").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            let Ok(bytes) = store.read_attachment(path) else {
+                continue;
+            };
+            let name = attachment
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("image");
+            files.push(json!({
+                "uri": format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)),
+                "name": name
+            }));
+        }
+    }
+    files
 }
 
 fn chat_message_in_project(snapshot: &Value, message: &Value, project_id: &str) -> bool {
@@ -3421,6 +4117,32 @@ fn available_owners(snapshot: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Owner ids with display names, e.g. `probe (Erin)`, so the orchestrator can
+/// map a person's name from chat to the right agent id.
+fn available_owners_with_names(snapshot: &Value) -> String {
+    snapshot
+        .get("agents")
+        .and_then(Value::as_array)
+        .map(|agents| {
+            agents
+                .iter()
+                .filter(|agent| {
+                    !matches!(
+                        agent.get("id").and_then(Value::as_str),
+                        Some("orchestrator") | Some("dreamer")
+                    )
+                })
+                .filter_map(|agent| {
+                    let id = agent.get("id").and_then(Value::as_str)?;
+                    let name = agent.get("name").and_then(Value::as_str).unwrap_or("");
+                    Some(format!("{id} ({name})"))
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
+}
+
 fn opencode_agent_id(snapshot: &Value, agent_id: &str) -> String {
     snapshot
         .get("agents")
@@ -3508,15 +4230,28 @@ fn push_activity(
 }
 
 fn push_chat(snapshot: &mut Value, role: &str, text: &str, refs: Vec<Value>) {
+    push_chat_with_attachments(snapshot, role, text, refs, Vec::new());
+}
+
+fn push_chat_with_attachments(
+    snapshot: &mut Value,
+    role: &str,
+    text: &str,
+    refs: Vec<Value>,
+    attachments: Vec<Value>,
+) {
     let at = now_ms();
     let id = unique_id(snapshot.get("chat").and_then(Value::as_array), "chat", at);
-    let message = json!({
+    let mut message = json!({
         "id": id,
         "role": role,
         "text": text,
         "at": at,
         "refs": refs
     });
+    if !attachments.is_empty() {
+        message["attachments"] = json!(attachments);
+    }
     if let Some(chat) = snapshot.get_mut("chat").and_then(Value::as_array_mut) {
         chat.push(message);
     } else {
@@ -3772,7 +4507,7 @@ mod tests {
     #[test]
     fn sse_text_deltas_fill_only_the_active_stream() {
         let streams = ChatStreams::default();
-        streams.0.lock().unwrap().insert(
+        streams.map.lock().unwrap().insert(
             "core".to_string(),
             ChatStream {
                 session_id: "ses-chat".to_string(),
@@ -3820,7 +4555,7 @@ mod tests {
             50,
         );
         let text = {
-            let guard = streams.0.lock().unwrap();
+            let guard = streams.map.lock().unwrap();
             streamed_text(&guard["core"].parts)
         };
         assert_eq!(text, "Hello world");
@@ -3835,7 +4570,7 @@ mod tests {
             200,
         );
         let reset = {
-            let guard = streams.0.lock().unwrap();
+            let guard = streams.map.lock().unwrap();
             streamed_text(&guard["core"].parts)
         };
         assert!(reset.is_empty());
@@ -3862,6 +4597,96 @@ mod tests {
             Some("new reply")
         );
         assert_eq!(latest_assistant_text(&messages, 400), None);
+    }
+
+    #[test]
+    fn chat_action_block_is_extracted_and_stripped() {
+        let reply = "I will create the task now.\n\n```agent-bots\n{\"action\":\"create_task\",\"title\":\"Fix login\"}\n```";
+        let (clean, action) = extract_chat_action(reply);
+        assert_eq!(clean, "I will create the task now.");
+        assert_eq!(
+            action.unwrap().get("action").and_then(Value::as_str),
+            Some("create_task")
+        );
+
+        let (clean, action) = extract_chat_action("No block here.");
+        assert_eq!(clean, "No block here.");
+        assert!(action.is_none());
+
+        // An unparseable block stays visible and runs nothing.
+        let (clean, action) = extract_chat_action("```agent-bots\nnot json\n```\n");
+        assert!(clean.contains("agent-bots"));
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn transient_failures_requeue_but_permanent_ones_block() {
+        let mut snapshot = json!({
+            "agents": [{ "id": "pixel", "status": "active", "currentTaskId": "t-1" }],
+            "tasks": [{
+                "id": "t-1",
+                "title": "Do work",
+                "status": "running",
+                "ownerId": "pixel",
+                "projectId": "core",
+                "notes": ""
+            }],
+            "activity": []
+        });
+        mark_failure(&mut snapshot, "t-1", "OpenCode unavailable while checking the session: refused");
+        assert_eq!(snapshot["tasks"][0]["status"], "queued");
+        assert_eq!(snapshot["tasks"][0]["retryCount"], 1);
+        // The scheduler restarts the requeued task before it can fail again.
+        snapshot["tasks"][0]["status"] = json!("running");
+
+        mark_failure(&mut snapshot, "t-1", "Could not start the task: connection refused again");
+        assert_eq!(snapshot["tasks"][0]["status"], "queued");
+        assert_eq!(snapshot["tasks"][0]["retryCount"], 2);
+        snapshot["tasks"][0]["status"] = json!("running");
+
+        // Budget spent: the third transient failure blocks.
+        mark_failure(&mut snapshot, "t-1", "session check failed: timeout");
+        assert_eq!(snapshot["tasks"][0]["status"], "blocked");
+
+        // Permanent failures never requeue.
+        let mut snapshot = json!({
+            "agents": [{ "id": "pixel", "status": "active", "currentTaskId": "t-2" }],
+            "tasks": [{
+                "id": "t-2",
+                "title": "Do work",
+                "status": "running",
+                "ownerId": "pixel",
+                "projectId": "core",
+                "notes": ""
+            }],
+            "activity": []
+        });
+        mark_failure(&mut snapshot, "t-2", "Session ended with an error: Insufficient balance");
+        assert_eq!(snapshot["tasks"][0]["status"], "blocked");
+        assert!(snapshot["tasks"][0].get("retryCount").is_none());
+    }
+
+    #[test]
+    fn dreamer_image_files_skip_unreadable_files() {
+        let store = WorkforceStore::new(std::env::temp_dir().join("agent-bots-test-store.db"))
+            .expect("test store");
+        let snapshot = json!({
+            "tasks": [],
+            "chat": [
+                {
+                    "id": "chat-1",
+                    "role": "user",
+                    "text": "look",
+                    "refs": [{ "kind": "project", "id": "core", "label": "CORE" }],
+                    "attachments": [
+                        { "id": "att-a", "name": "one.png", "mime": "image/png", "path": "C:/definitely/missing/one.png" }
+                    ]
+                }
+            ]
+        });
+        // Missing files are skipped instead of aborting the Dreamer run.
+        let files = dreamer_image_files(&store, &snapshot, "core", 4);
+        assert!(files.is_empty());
     }
 
     #[test]

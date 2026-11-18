@@ -607,7 +607,7 @@ pub fn run() {
                     Box::new(std::io::Error::other(error))
                 })?;
             app.manage(store);
-            app.manage(workforce::ChatStreams::default());
+            app.manage(workforce::ChatStreams::new(data_dir.join("workforce.db")));
             app.manage(PetBubbleState::default());
             app.manage(PetDragState::default());
             app.manage(PetVisibilityState::default());
@@ -667,6 +667,8 @@ pub fn run() {
             workforce::workforce_send,
             workforce::workforce_send_start,
             workforce::workforce_chat_poll,
+            workforce::workforce_chat_resume,
+            workforce::workforce_attachment_data,
             workforce::workforce_tick,
             workforce::workforce_poll,
             workforce::workforce_reply_task_permission,

@@ -99,6 +99,20 @@ export function workforceSend(projectId: string, text: string): Promise<{ text: 
   return invoke<{ text: string }>("workforce_send", { projectId, text });
 }
 
+export interface ChatAttachmentMeta {
+  id: string;
+  name: string;
+  mime: string;
+  path: string;
+}
+
+export interface ChatAttachmentInput {
+  /** Base64 bytes without the data-uri prefix. */
+  data: string;
+  mime: string;
+  name: string;
+}
+
 export interface ChatStreamStart {
   sessionId: string;
   projectId: string;
@@ -112,12 +126,25 @@ export interface ChatStreamPoll {
 export function workforceSendStart(
   projectId: string,
   text: string,
+  attachments: ChatAttachmentInput[] = [],
 ): Promise<ChatStreamStart> {
-  return invoke<ChatStreamStart>("workforce_send_start", { projectId, text });
+  return invoke<ChatStreamStart>("workforce_send_start", {
+    projectId,
+    text,
+    attachments,
+  });
 }
 
 export function workforceChatPoll(projectId: string): Promise<ChatStreamPoll> {
   return invoke<ChatStreamPoll>("workforce_chat_poll", { projectId });
+}
+
+export function workforceChatResume(projectId: string): Promise<{ active: boolean }> {
+  return invoke<{ active: boolean }>("workforce_chat_resume", { projectId });
+}
+
+export function workforceAttachmentData(path: string): Promise<{ data: string }> {
+  return invoke<{ data: string }>("workforce_attachment_data", { path });
 }
 
 export function workforceTick(): Promise<Snapshot> {

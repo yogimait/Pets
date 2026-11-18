@@ -49,8 +49,10 @@ Views receive a `Snapshot` prop. They never import fixture data directly. `src/l
 | `workforce_create_task` | Create a manual queued task with owner, priority, acceptance, and optional auto-start |
 | `workforce_plan` | Ask the orchestrator for a task plan, create tasks, append activity and chat |
 | `workforce_send` | Blocking chat fallback; waits for the full reply and stores it |
-| `workforce_send_start` | Persist the user turn, start the OpenCode prompt, and register a streaming turn |
-| `workforce_chat_poll` | Return partial streamed text, then store the final reply exactly once |
+| `workforce_send_start` | Persist the user turn (with image attachments), start the OpenCode prompt, and register a streaming turn |
+| `workforce_chat_poll` | Return partial streamed text, execute a trailing ```agent-bots action block, and store the final reply exactly once |
+| `workforce_chat_resume` | Report and hydrate a streaming turn that outlived an app restart |
+| `workforce_attachment_data` | Read stored attachment bytes for rendering; attachments directory only |
 | `workforce_tick` | Start ready queued tasks |
 | `workforce_poll` | Finish running sessions, auto-accept results, or mark blocked |
 | `workforce_run_task` | Run or retry one task |
@@ -157,6 +159,8 @@ Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` v
 The overlay has two modes:
 
 - **Chat**: real `workforce_send_start` plus `workforce_chat_poll` in Tauri; the browser preview cannot chat. The user turn is stored before the runtime starts, the prompt waits up to 2 seconds for the SSE event stream to attach, and assistant text is appended from OpenCode `session.text.delta` events while the turn runs. `workforce_chat_poll` is the fallback and stores the authoritative final reply exactly once. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
+- **Chat actions**: a reply may end with one ```agent-bots fenced JSON block — `create_task`, `plan`, or `retry_task`. The backend executes it, strips the block from the stored text, and attaches task reference chips. This is the same command layer the UI uses; the orchestrator only requests, the Rust core executes.
+- **Images**: paste or drop up to four png/jpeg/webp/gif files (8 MB each). Bytes land in `app_data_dir/attachments/`, the chat message stores `{id, name, mime, path}` metadata, and the prompt carries the images as inline data-uri files. Dreamer re-reads the newest four project images and can store `observation` memory. `workforce_attachment_data` reads thumbnails and only accepts paths inside the attachments directory.
 - **Plan & run**: real `workforce_plan`; creates queued tasks and returns a summary. The scheduler starts ready tasks automatically.
 
 Reference chips open the linked task, agent, or project in the main window. The overlay does not expose model or API configuration.
@@ -181,8 +185,9 @@ Dreamer reads project context, review/done task results, existing memory, projec
 - SSE is live-only and volatile; the bridge reconnects and a 15-second polling fallback recovers missed events. There is no replay or Last-Event-ID recovery.
 - Worktrees require a clean Git repo and a fast-forwardable base branch; merge conflicts remain manual.
 - Manual tasks are created from Tasks → New task. Queued, blocked, and review tasks can be edited inline from the task sheet.
-- One chat session per project; if OpenCode restarts, the next chat recreates it.
+- One chat session per project; sessions and active streaming turns persist in the `chat_sessions` and `chat_stream` SQLite tables, so a restart resumes the thread and can finish a turn that was still running.
 - The autonomous loop auto-accepts results and starts the next dependency. Manual Accept/Reject/Edit remains a fallback.
+- A running task that fails transiently (service down, connection, timeout, session read) is requeued up to `retryCount` 2 before it blocks. Credential, quota, policy, merge, and permission-denial failures block immediately.
 - A blocked task stops the project; the final notification reports the stopped project. There is no automatic infinite retry.
 - Native notifications are final project complete/stopped events and depend on Windows notification permission. The in-app Alerts bell shows task attention states.
 - The app auto-starts at Windows login through the Tauri autostart plugin. Settings → Startup has an enable/disable toggle; the first launch enables it unless the user turns it off. Closing the window still stops the process; a crash or manual exit stops the loop until relaunch.

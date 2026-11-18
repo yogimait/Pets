@@ -19,7 +19,9 @@ import {
   workforcePoll,
   workforceReplyTaskPermission,
   workforceRunTask,
+  type ChatAttachmentInput,
   workforceChatPoll,
+  workforceChatResume,
   workforceSendStart,
   workforceSnapshot,
   workforceTick,
@@ -179,30 +181,54 @@ export function createTask(input: TaskInput): Promise<boolean> {
   return runWorkforceAction(() => workforceCreateTask(input));
 }
 
+async function pollChatTurn(
+  projectId: string,
+  onChunk?: (text: string) => void,
+): Promise<boolean> {
+  const deadline = Date.now() + 240_000;
+  for (;;) {
+    const turn = await workforceChatPoll(projectId);
+    onChunk?.(turn.text);
+    if (turn.done) {
+      await refreshWorkforce();
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("The orchestrator turn did not finish in time.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+}
+
 export async function sendOrchestrator(
   projectId: string,
   text: string,
+  attachments: ChatAttachmentInput[] = [],
   onChunk?: (text: string) => void,
 ): Promise<boolean> {
   app.workforceError = null;
-  const deadline = Date.now() + 240_000;
   try {
-    await workforceSendStart(projectId, text);
+    await workforceSendStart(projectId, text, attachments);
     await refreshWorkforce();
-    for (;;) {
-      const turn = await workforceChatPoll(projectId);
-      onChunk?.(turn.text);
-      if (turn.done) {
-        await refreshWorkforce();
-        return true;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error("The orchestrator turn did not finish in time.");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
+    await pollChatTurn(projectId, onChunk);
+    return true;
   } catch (error) {
     app.workforceError = String(error);
+    return false;
+  }
+}
+
+/// Finish an orchestrator turn that outlived an app restart.
+export async function resumeOrchestratorTurn(
+  projectId: string,
+  onChunk?: (text: string) => void,
+): Promise<boolean> {
+  try {
+    const status = await workforceChatResume(projectId);
+    if (!status.active) return false;
+    await pollChatTurn(projectId, onChunk);
+    return true;
+  } catch {
     return false;
   }
 }

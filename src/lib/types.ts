@@ -4,7 +4,7 @@ export type ProjectStatus = "active" | "paused" | "archived";
 export type TaskStatus = "queued" | "running" | "review" | "blocked" | "done";
 export type TaskPriority = "low" | "normal" | "high" | "critical";
 export type ActivityKind = "delegation" | "status" | "message" | "result" | "memory" | "system";
-export type MemoryKind = "decision" | "reference" | "doc" | "result" | "convention";
+export type MemoryKind = "decision" | "reference" | "doc" | "result" | "convention" | "observation";
 export type ArtifactKind = "file" | "url" | "doc";
 
 export interface Model {
@@ -110,6 +110,7 @@ export interface Task {
   worktreePath?: string | null;
   worktreeBranch?: string | null;
   requiredMcp?: string[];
+  retryCount?: number;
 }
 
 export interface ActivityEvent {
@@ -143,12 +144,20 @@ export interface ChatRef {
   label: string;
 }
 
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mime: string;
+  path: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "orchestrator";
   text: string;
   at: number;
   refs: ChatRef[];
+  attachments?: ChatAttachment[];
 }
 
 export type ProposalAction = "add" | "update" | "delete" | "merge";

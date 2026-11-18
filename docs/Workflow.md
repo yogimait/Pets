@@ -46,11 +46,11 @@ flowchart LR
 
 Important differences:
 
-- Chat is conversation. It does **not** start a task and does not automatically inspect the task board. Use Plan to create work.
-- Plan creates queued tasks with `autoStart: true`. The scheduler starts ready tasks; it does not run the whole plan synchronously.
+- Chat is conversation with teeth. It can answer, and when you ask for work it can end its reply with a ```agent-bots action block: `create_task`, `plan`, or `retry_task`. The app executes the block and shows task reference chips in the reply.
+- Plan creates queued tasks with `autoStart: true`. The scheduler starts ready tasks; it does not run the whole plan synchronously. Chat `plan` actions use the same planner.
 - A task is executed by one specialist agent, not by the orchestrator itself.
 - The task agent gets the full policy stack, task description, acceptance criteria, approved project memory, and DevVault context.
-- Chat now gets project metadata, the project task board with statuses, approved project memory, and recent project chat. It still cannot create, accept, run, or retry tasks from chat; use Plan or Tasks.
+- Chat gets project metadata, the project task board with statuses, approved project memory, recent project chat, and any images you attach. Image attachments are visible to the model; paste or drop them into the composer.
 
 ## Permissions and questions
 
@@ -102,6 +102,8 @@ queued -> running -> review -> done
                     +-> blocked
 ```
 
+A running task that hits a transient failure (OpenCode service down, connection error, timeout, unreadable session) is requeued automatically, up to `retryCount: 2`. The note records each auto-retry. When the budget is spent — or the failure is permanent (credentials, quota, policy, merge conflict, denied permission) — the task blocks as before.
+
 What is live:
 
 - **Orchestrator chat**: your message appears immediately and is stored before the model starts; assistant text streams in from OpenCode text-delta events. Reasoning time shows as `Working` before the first text arrives.
@@ -122,11 +124,12 @@ What is not live:
 
 Chat is now project-scoped:
 
-- The backend keeps one OpenCode chat session per project and filters the last eight prompt messages by project references.
+- The backend keeps one OpenCode chat session per project and filters the last eight prompt messages by project references. Sessions persist in SQLite across restarts.
 - User messages are tagged with the selected project.
 - The visible thread is filtered by the selected project.
 - Switching the project selector switches both the visible thread and the backend session.
-- The session map is in memory; after an app restart, the next chat creates a new OpenCode session, but stored project chat is still used as context.
+- A streaming turn that was running when the app closed is detected on the next overlay open and finished via `workforce_chat_resume`.
+- Image attachments persist with the message; Dreamer re-reads the newest four project images on its next run.
 
 ## Models
 

@@ -48,6 +48,24 @@ Turn a user request into the smallest reliable set of tasks, assign each task to
 
 Stop when every task is done or blocked. Do not keep working to fill time.
 
+## Acting from chat
+
+The harness executes a trailing fenced block on your reply. Use it only when the operator clearly asked for work:
+
+```text
+{"action":"create_task","title":"...","description":"...","ownerId":"pixel","acceptance":"..."}
+{"action":"plan","goal":"..."}
+{"action":"retry_task","taskId":"t-..."}
+```
+
+Rules:
+
+- Put the block at the very end of the reply, inside a ```agent-bots fence, exactly one block.
+- `create_task` for one deliverable; `plan` for multi-step work; `retry_task` only for a blocked task on the board.
+- The harness creates and starts the work; never claim a task exists without the block.
+- Image attachments in a message are visible to you; describe what matters from them and reference concrete details.
+- Never invent task ids, and never use the block for anything else.
+
 ## Planning rules
 
 - A task must have an owner, a deliverable, and acceptance criteria before it starts.

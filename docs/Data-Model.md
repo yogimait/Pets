@@ -8,6 +8,10 @@ The workforce snapshot is the contract between the Svelte renderer and the Rust 
 app_data_dir/
   workforce.db
     state(id = 1, json, updated_at)
+    chat_sessions(project_id, session_id)
+    chat_stream(project_id, session_id, started_at, done, text)
+  attachments/
+    att-<timestamp>-<index>.<ext>
 ```
 
 - `workforce_snapshot()` reads the row.
@@ -56,7 +60,7 @@ erDiagram
 | `DreamerRun` | `run-*` | trigger, projectId, findings, proposalIds, status | One run per Dreamer action. |
 | `Provider` | slug | kind, endpoint, configured, models | Display metadata; the app does not read credentials. |
 | `Artifact` | `art-*` | projectId, name, kind, path | Still display-only. |
-| `ChatMessage` | `chat-*` | role, text, at, refs | Persisted orchestrator thread. |
+| `ChatMessage` | `chat-*` | role, text, at, refs, optional `attachments: [{id, name, mime, path}]` | Persisted orchestrator thread. Attachment metadata points into `app_data_dir/attachments`; image bytes never enter the snapshot. |
 
 ## Project onboarding
 
@@ -93,7 +97,7 @@ queued -> running -> review -> done
 - **running**: claimed in SQLite and linked to an OpenCode session.
 - **review**: the session went idle; result text is stored.
 - **done**: the user accepted the result.
-- **blocked**: start, session, policy, or timeout failure. Retry is allowed from task detail.
+- **blocked**: start, session, policy, or timeout failure. Retry is allowed from task detail. A transient failure requeues the task first, up to `retryCount: 2`.
 
 `autoStart` is true only for Plan-created tasks. The scheduler ignores fixture tasks until the user clicks Run.
 

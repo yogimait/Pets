@@ -2,10 +2,19 @@
   import { onMount } from "svelte";
   import { ArrowUp, X } from "@lucide/svelte";
   import { invoke, isTauri } from "@tauri-apps/api/core";
-  import { app, closeOrchestrator, navigateTo, planWork, refreshWorkforce, sendOrchestrator } from "../state/app.svelte.ts";
+  import {
+    app,
+    closeOrchestrator,
+    navigateTo,
+    planWork,
+    refreshWorkforce,
+    resumeOrchestratorTurn,
+    sendOrchestrator,
+  } from "../state/app.svelte.ts";
   import { SUGGESTIONS } from "../orchestrator.ts";
   import Markdown from "./Markdown.svelte";
-  import { workforceAvailable } from "../workforce.ts";
+  import AttachmentThumb from "./AttachmentThumb.svelte";
+  import { workforceAvailable, type ChatAttachmentInput } from "../workforce.ts";
   import { clockTime } from "../format.ts";
   import { chatForProject } from "../selectors.ts";
   import type { ChatRef } from "../types.ts";
@@ -20,6 +29,7 @@
   let mode = $state<"chat" | "plan">("chat");
   let planSummary = $state<string | null>(null);
   let streamingText = $state("");
+  let pendingAttachments = $state<ChatAttachmentInput[]>([]);
   let input = $state<HTMLTextAreaElement | null>(null);
   let body = $state<HTMLDivElement | null>(null);
   let lastMessage = $state<HTMLElement | null>(null);
@@ -48,12 +58,67 @@
     input.style.height = `${input.scrollHeight}px`;
   }
 
+  function fileToAttachment(file: File): Promise<ChatAttachmentInput> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        const data = result.slice(result.indexOf(",") + 1);
+        resolve({
+          data,
+          mime: file.type || "image/png",
+          name: file.name || "image",
+        });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addImageFiles(files: FileList | File[]) {
+    for (const file of Array.from(files)) {
+      if (pendingAttachments.length >= 4) break;
+      if (!file.type.startsWith("image/")) continue;
+      pendingAttachments = [...pendingAttachments, await fileToAttachment(file)];
+    }
+  }
+
+  function onComposerPaste(event: ClipboardEvent) {
+    const files = event.clipboardData?.files;
+    if (files && files.length > 0) {
+      event.preventDefault();
+      void addImageFiles(files);
+    }
+  }
+
+  function onComposerDrop(event: DragEvent) {
+    const files = event.dataTransfer?.files;
+    if (files && files.length > 0) {
+      event.preventDefault();
+      void addImageFiles(files);
+    }
+  }
+
+  async function resumeTurn() {
+    app.pending = true;
+    streamingText = "";
+    try {
+      await resumeOrchestratorTurn(projectId, (chunk) => {
+        streamingText = chunk;
+      });
+    } finally {
+      app.pending = false;
+      streamingText = "";
+    }
+  }
+
   onMount(() => {
     const focus = () => {
       input?.focus();
       void refreshWorkforce();
     };
     focus();
+    if (live) void resumeTurn();
     window.addEventListener("focus", focus);
     window.addEventListener("resize", resizeComposer);
     return () => {
@@ -103,6 +168,7 @@
       await plan(text);
       return;
     }
+    const attachments = pendingAttachments;
     app.chat.push({
       id: `chat-${Date.now()}-${sequence++}`,
       role: "user",
@@ -120,6 +186,7 @@
       },
     ];
     draft = "";
+    pendingAttachments = [];
     app.pending = true;
     streamingText = "";
 
@@ -131,9 +198,14 @@
     }
 
     try {
-      const sent = await sendOrchestrator(projectId, text, (chunk) => {
-        streamingText = chunk;
-      });
+      const sent = await sendOrchestrator(
+        projectId,
+        text,
+        attachments,
+        (chunk) => {
+          streamingText = chunk;
+        },
+      );
       if (sent) app.pendingChat = [];
     } finally {
       app.pending = false;
@@ -215,6 +287,13 @@
           <p class="mt-2 whitespace-pre-wrap break-words text-[15px] leading-[1.65] text-[#ededed]">{message.text}</p>
         {:else}
           <div class="mt-2"><Markdown text={message.text} /></div>
+        {/if}
+        {#if message.attachments && message.attachments.length > 0}
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            {#each message.attachments as attachment (attachment.id)}
+              <AttachmentThumb {attachment} />
+            {/each}
+          </div>
         {/if}
         {#if message.refs.length > 0}
           <div class="mt-2.5 flex flex-wrap gap-2">
@@ -309,11 +388,33 @@
       </div>
     {/if}
 
+    {#if pendingAttachments.length > 0}
+      <div class="mb-2.5 flex flex-wrap gap-1.5">
+        {#each pendingAttachments as attachment, index (index)}
+          <span class="flex min-h-8 items-center gap-1.5 border border-[#2b2b2b] bg-[#0a0a0a] px-2.5 font-mono text-[10.5px] text-[#8a8a8a]">
+            {attachment.name}
+            <button
+              onclick={() => {
+                pendingAttachments = pendingAttachments.filter((_, at) => at !== index);
+              }}
+              aria-label={`Remove ${attachment.name}`}
+              class="text-[#5f5f5f] transition-colors hover:text-[#ededed]"
+            >
+              <X size={11} strokeWidth={2.2} />
+            </button>
+          </span>
+        {/each}
+      </div>
+    {/if}
+
     <div class="flex items-end gap-2 border border-[#3d3d3d] bg-[#0a0a0a] px-3 py-2.5">
       <textarea
         bind:this={input}
         bind:value={draft}
         onkeydown={onComposerKeydown}
+        onpaste={onComposerPaste}
+        ondrop={onComposerDrop}
+        ondragover={(event) => event.preventDefault()}
         rows={2}
         placeholder={mode === "plan" ? "Describe a goal; ready tasks start automatically…" : "Ask the orchestrator…"}
         aria-label={mode === "plan" ? "Goal for the orchestrator" : "Message the orchestrator"}

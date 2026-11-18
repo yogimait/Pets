@@ -202,6 +202,19 @@ Two running tasks maximum, one per owner. Test tasks were removed afterward.
 - Sending while a turn is pending is blocked, so two streams cannot target the same project.
 - The prompt waits up to 2 seconds for the SSE stream to attach after a cold service start, so the first deltas are not lost.
 
+### Image input and Dreamer observations
+
+- `opencode-go/deepseek-v4.1-flash` described a generated test image (shapes and colors) correctly through the live service — vision is confirmed.
+- Paste and drop add up to four images; rejected types and oversized files are skipped with a clear error path.
+- `workforce_attachment_data` refuses paths outside `app_data_dir/attachments`.
+- Dreamer image collection skips unreadable files instead of failing the run (`dreamer_image_files_skip_unreadable_files`).
+
+### Chat actions and auto-retry
+
+- A reply ending in a ```agent-bots block creates/queues/retries exactly once; the block is stripped from stored text (`chat_action_block_is_extracted_and_stripped`).
+- Transient failures requeue a running task up to twice; permanent failures (credentials, quota, merge, policy) block immediately, and the budget spent blocks (`transient_failures_requeue_but_permanent_ones_block`).
+- `chat_sessions` and `chat_stream` tables persist sessions and active turns; an overlay reopen resumes a turn that outlived a restart. The resume path reconnects to the OpenCode service first, because a fresh process starts without a runtime target (cold-boot no-probe).
+
 To inspect it:
 
 ```powershell

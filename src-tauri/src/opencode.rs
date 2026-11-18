@@ -207,7 +207,7 @@ impl OpenCodeState {
     }
 }
 
-fn debug_log(message: &str) {
+pub(crate) fn debug_log(message: &str) {
     use std::io::Write;
     let path = std::env::temp_dir().join("agent-bots-runtime.log");
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
