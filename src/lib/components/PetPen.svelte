@@ -101,14 +101,7 @@
     selected = null;
   }
 
-  function startWindowDrag(event: PointerEvent) {
-    downX = event.clientX;
-    downY = event.clientY;
-    if ((event.target as HTMLElement).closest("button")) return;
-    void getCurrentWindow().startDragging();
-  }
-
-  async function applyCollapsed(next: boolean) {
+  function applyCollapsed(next: boolean) {
     const win = getCurrentWindow();
     if (next) {
       try {
@@ -120,29 +113,55 @@
       } catch {
         /* keep the last saved size */
       }
-      await win.setMinSize(new LogicalSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT));
-      await win.setSize(new LogicalSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT));
+      win.setMinSize(new LogicalSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT));
+      win.setSize(new LogicalSize(COLLAPSED_WIDTH, COLLAPSED_HEIGHT));
     } else {
-      await win.setMinSize(new LogicalSize(EXPANDED_MIN[0], EXPANDED_MIN[1]));
+      win.setMinSize(new LogicalSize(EXPANDED_MIN[0], EXPANDED_MIN[1]));
       const saved = localStorage.getItem("petpen-size") ?? "600x420";
       const [rawW, rawH] = saved.split("x").map(Number);
       const width = Number.isFinite(rawW) && rawW >= EXPANDED_MIN[0] ? rawW : 600;
       const height = Number.isFinite(rawH) && rawH >= EXPANDED_MIN[1] ? rawH : 420;
-      await win.setSize(new LogicalSize(width, height));
+      win.setSize(new LogicalSize(width, height));
     }
     localStorage.setItem("petpen-collapsed", next ? "1" : "0");
     collapsed = next;
   }
 
-  function toggleCollapsed(event: MouseEvent) {
-    // Ignore the click that ends a header drag; only a still pointer toggles.
-    if (Math.hypot(event.clientX - downX, event.clientY - downY) > 6) return;
+  // Click-vs-drag for the header and the collapsed pill. The native window
+  // drag must NOT start on pointerdown: once it runs it swallows the mouse
+  // up, so a real click would never toggle the collapse. Start the drag only
+  // after the pointer moves; a still press toggles instead.
+  let pressPointerId: number | null = null;
+  let pressDragging = false;
+
+  function penPressDown(event: PointerEvent) {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    downX = event.clientX;
+    downY = event.clientY;
+    pressDragging = false;
+    pressPointerId = event.pointerId;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+
+  function penPressMove(event: PointerEvent) {
+    if (pressPointerId !== event.pointerId) return;
+    if (!pressDragging && Math.hypot(event.clientX - downX, event.clientY - downY) > 6) {
+      pressDragging = true;
+      void getCurrentWindow().startDragging();
+    }
+  }
+
+  function penPressUp(event: PointerEvent) {
+    if (pressPointerId !== event.pointerId) return;
+    pressPointerId = null;
+    if (pressDragging) return;
     void applyCollapsed(!collapsed);
   }
 
-  function expandFromPill(event: MouseEvent) {
-    if (Math.hypot(event.clientX - downX, event.clientY - downY) > 6) return;
-    void applyCollapsed(false);
+  function penPressCancel() {
+    pressPointerId = null;
+    pressDragging = false;
   }
 
   function startResize(event: PointerEvent) {
@@ -240,8 +259,12 @@
     role="button"
     tabindex="0"
     aria-label="Open pet pen"
-    onpointerdown={startWindowDrag}
-    onclick={expandFromPill}
+    title="Click to open the pet pen"
+    onpointerdown={penPressDown}
+    onpointermove={penPressMove}
+    onpointerup={penPressUp}
+    onpointercancel={penPressCancel}
+    onlostpointercapture={penPressCancel}
     onkeydown={(event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -271,8 +294,11 @@
     tabindex="0"
     aria-label="Pet pen window controls"
     title="Click to collapse the pen"
-    onpointerdown={startWindowDrag}
-    onclick={toggleCollapsed}
+    onpointerdown={penPressDown}
+    onpointermove={penPressMove}
+    onpointerup={penPressUp}
+    onpointercancel={penPressCancel}
+    onlostpointercapture={penPressCancel}
     onkeydown={(event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
