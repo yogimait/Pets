@@ -99,6 +99,27 @@ export function workforceSend(projectId: string, text: string): Promise<{ text: 
   return invoke<{ text: string }>("workforce_send", { projectId, text });
 }
 
+export interface ChatStreamStart {
+  sessionId: string;
+  projectId: string;
+}
+
+export interface ChatStreamPoll {
+  text: string;
+  done: boolean;
+}
+
+export function workforceSendStart(
+  projectId: string,
+  text: string,
+): Promise<ChatStreamStart> {
+  return invoke<ChatStreamStart>("workforce_send_start", { projectId, text });
+}
+
+export function workforceChatPoll(projectId: string): Promise<ChatStreamPoll> {
+  return invoke<ChatStreamPoll>("workforce_chat_poll", { projectId });
+}
+
 export function workforceTick(): Promise<Snapshot> {
   return invoke<Snapshot>("workforce_tick");
 }

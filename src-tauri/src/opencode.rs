@@ -374,6 +374,25 @@ async fn event_stream_once(app: &AppHandle, target: &SharedTarget) -> Result<(),
             let Some(event_type) = value.get("type").and_then(Value::as_str) else {
                 continue;
             };
+            if event_type.starts_with("session.text.") {
+                if let Some(session_id) = event_session_id(&value) {
+                    let data = value.get("data");
+                    app.state::<crate::workforce::ChatStreams>().absorb_text_event(
+                        event_type,
+                        &session_id,
+                        data.and_then(|data| data.get("assistantMessageID"))
+                            .and_then(Value::as_str),
+                        data.and_then(|data| data.get("ordinal"))
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                        data.and_then(|data| data.get("delta"))
+                            .and_then(Value::as_str),
+                        data.and_then(|data| data.get("text"))
+                            .and_then(Value::as_str),
+                        value.get("created").and_then(Value::as_u64).unwrap_or(0),
+                    );
+                }
+            }
             if !is_sync_event(event_type) {
                 continue;
             }
@@ -399,7 +418,7 @@ pub(crate) async fn run_event_listener(app: AppHandle) {
         // A target is created only when the user starts runtime work; until
         // then polling is unnecessary and can flash console terminals.
         if !app.state::<OpenCodeState>().has_target() {
-            tokio::time::sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
             continue;
         }
         let Some(target) = discover_shared_service() else {

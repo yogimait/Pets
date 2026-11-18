@@ -19,7 +19,8 @@ import {
   workforcePoll,
   workforceReplyTaskPermission,
   workforceRunTask,
-  workforceSend,
+  workforceChatPoll,
+  workforceSendStart,
   workforceSnapshot,
   workforceTick,
   type PermissionDecision,
@@ -47,6 +48,7 @@ export const app = $state({
   petsVisible: true,
   sheet: null as SheetRef | null,
   chat: [] as ChatMessage[],
+  pendingChat: [] as ChatMessage[],
   pending: false,
   policy: null as PolicyBundle | null,
   policyProjectId: null as string | null,
@@ -58,6 +60,17 @@ export const app = $state({
 });
 
 let started = false;
+
+// Keep the operator's just-sent turn visible until the backend stores it.
+// Matching role and text is enough because the backend appends the same turn.
+function applyChat(chat: ChatMessage[]): void {
+  const pending = app.pendingChat.filter(
+    (local) =>
+      !chat.some((stored) => stored.role === local.role && stored.text === local.text),
+  );
+  app.pendingChat = pending;
+  app.chat = [...chat, ...pending];
+}
 
 async function loadInitialSnapshot(): Promise<Snapshot> {
   for (let attempt = 0; ; attempt++) {
@@ -78,13 +91,13 @@ export async function init(): Promise<void> {
   try {
     const snapshot = await loadInitialSnapshot();
     app.snapshot = snapshot;
-    app.chat = snapshot.chat ?? [];
+    applyChat(snapshot.chat ?? []);
     if (workforceAvailable()) {
       try {
         const reviewed = await workforceAutoMemories();
         if (reviewed) {
           app.snapshot = reviewed;
-          app.chat = reviewed.chat ?? [];
+          applyChat(reviewed.chat ?? []);
         }
       } catch (error) {
         console.warn("automatic memory review unavailable", error);
@@ -139,7 +152,7 @@ export async function refreshWorkforce(): Promise<void> {
     const next = await workforceSnapshot();
     if (!next) return;
     app.snapshot = next;
-    app.chat = next.chat ?? [];
+    applyChat(next.chat ?? []);
     app.workforceError = null;
   } catch (error) {
     app.workforceError = String(error);
@@ -166,19 +179,28 @@ export function createTask(input: TaskInput): Promise<boolean> {
   return runWorkforceAction(() => workforceCreateTask(input));
 }
 
-export async function sendOrchestrator(projectId: string, text: string): Promise<boolean> {
+export async function sendOrchestrator(
+  projectId: string,
+  text: string,
+  onChunk?: (text: string) => void,
+): Promise<boolean> {
   app.workforceError = null;
+  const deadline = Date.now() + 240_000;
   try {
-    const reply = await workforceSend(projectId, text);
-    const project = app.snapshot?.projects.find((candidate) => candidate.id === projectId);
-    app.chat.push({
-      id: `chat-${Date.now()}-r`,
-      role: "orchestrator",
-      text: reply.text,
-      at: Date.now(),
-      refs: [{ kind: "project", id: projectId, label: project?.key ?? projectId }],
-    });
-    return true;
+    await workforceSendStart(projectId, text);
+    await refreshWorkforce();
+    for (;;) {
+      const turn = await workforceChatPoll(projectId);
+      onChunk?.(turn.text);
+      if (turn.done) {
+        await refreshWorkforce();
+        return true;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error("The orchestrator turn did not finish in time.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   } catch (error) {
     app.workforceError = String(error);
     return false;
@@ -340,7 +362,7 @@ async function syncNow(): Promise<void> {
       next = await workforcePoll();
     }
     app.snapshot = next;
-    app.chat = next.chat ?? [];
+    applyChat(next.chat ?? []);
     app.workforceError = null;
     notifyTransitions(previous, next);
     void maybeAutoPlan(next);

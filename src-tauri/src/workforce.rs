@@ -30,6 +30,80 @@ pub struct WorkforceStore {
     worktrees_root: PathBuf,
 }
 
+/// Agent-level turns that are still streaming. The frontend polls the active
+/// turn and renders partial assistant text until the session goes idle.
+#[derive(Default)]
+pub struct ChatStreams(Mutex<HashMap<String, ChatStream>>);
+
+struct ChatStream {
+    session_id: String,
+    started_at: u64,
+    done: bool,
+    text: String,
+    message_id: Option<String>,
+    parts: HashMap<u64, String>,
+}
+
+impl ChatStreams {
+    /// Apply an OpenCode text event to the matching project's active turn.
+    /// Events are ignored once the turn is stored or when they predate it.
+    pub(crate) fn absorb_text_event(
+        &self,
+        event_type: &str,
+        session_id: &str,
+        message_id: Option<&str>,
+        ordinal: u64,
+        delta: Option<&str>,
+        full_text: Option<&str>,
+        created: u64,
+    ) {
+        let Ok(mut guard) = self.0.lock() else {
+            return;
+        };
+        let Some(stream) = guard.values_mut().find(|stream| {
+            !stream.done
+                && stream.session_id == session_id
+                && (created == 0 || created >= stream.started_at)
+        }) else {
+            return;
+        };
+        if let Some(message_id) = message_id {
+            if stream.message_id.as_deref() != Some(message_id) {
+                stream.parts.clear();
+                stream.message_id = Some(message_id.to_string());
+            }
+        }
+        match event_type {
+            "session.text.started" => {
+                stream.parts.entry(ordinal).or_default();
+            }
+            "session.text.delta" => {
+                if let Some(delta) = delta {
+                    stream.parts.entry(ordinal).or_default().push_str(delta);
+                }
+            }
+            "session.text.ended" => {
+                if let Some(text) = full_text {
+                    stream.parts.insert(ordinal, text.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn streamed_text(parts: &HashMap<u64, String>) -> String {
+    let mut ordinals = parts.keys().copied().collect::<Vec<_>>();
+    ordinals.sort_unstable();
+    ordinals
+        .into_iter()
+        .filter_map(|ordinal| parts.get(&ordinal))
+        .filter(|text| !text.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl WorkforceStore {
     pub fn new(path: PathBuf) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
@@ -727,10 +801,10 @@ pub async fn workforce_send(
     }
     let messages = runtime
         .get_json(&format!(
-            "/api/session/{session_id}/message?limit=200&order=asc"
+            "/api/session/{session_id}/message?limit=50&order=desc"
         ))
         .await?;
-    let reply = last_assistant_text(&messages)
+    let reply = latest_assistant_text(&messages, 0)
         .unwrap_or_else(|| "No assistant text returned.".to_string());
 
     store.update(|value| {
@@ -746,6 +820,185 @@ pub async fn workforce_send(
     })?;
 
     Ok(json!({ "text": reply }))
+}
+
+#[tauri::command]
+pub async fn workforce_send_start(
+    store: State<'_, WorkforceStore>,
+    runtime: State<'_, OpenCodeState>,
+    streams: State<'_, ChatStreams>,
+    project_id: String,
+    text: String,
+) -> Result<Value, String> {
+    let store = store.inner();
+    let runtime = runtime.inner();
+    let _session_guard = store.session_lock.lock().await;
+    let snapshot = snapshot_value(store)?;
+    let project = get_project(&snapshot, &project_id)?.clone();
+    let repo = repo_path(&project)?;
+    require_policy(&repo)?;
+    let prompt = send_prompt(&snapshot, &project, &text);
+    let refs = vec![json!({
+        "kind": "project",
+        "id": project_id,
+        "label": project_label(&project)
+    })];
+
+    // Persist the operator turn before starting the runtime so a refresh while
+    // the service wakes up cannot erase the message they just sent.
+    store.update(|value| {
+        push_chat(value, "user", &text, refs);
+        Ok(())
+    })?;
+
+    runtime.ensure(&repo).await?;
+    let (provider_id, model_id) = model_config()?;
+
+    let session_id = match store.session_for(&project_id) {
+        Some(session_id) => session_id,
+        None => {
+            let title = format!("{} — Orchestrator", project_label(&project));
+            let session = create_session(
+                runtime,
+                &repo,
+                &title,
+                ORCHESTRATOR_AGENT,
+                &provider_id,
+                &model_id,
+                None,
+            )
+            .await
+            .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
+            let session_id = session_id_of(&session)
+                .ok_or_else(|| "OpenCode did not return a session id.".to_string())?;
+            store.remember_session(&project_id, &session_id);
+            session_id
+        }
+    };
+
+    let started_at = now_ms();
+    runtime
+        .post_json(
+            &format!("/api/session/{session_id}/prompt"),
+            json!({ "text": prompt }),
+        )
+        .await
+        .map_err(|error| provider_failure_message(&provider_id, &model_id, &error))?;
+
+    let mut guard = streams
+        .0
+        .lock()
+        .map_err(|_| "Chat stream lock poisoned".to_string())?;
+    guard.insert(
+        project_id.clone(),
+        ChatStream {
+            session_id: session_id.clone(),
+            started_at,
+            done: false,
+            text: String::new(),
+            message_id: None,
+            parts: HashMap::new(),
+        },
+    );
+
+    Ok(json!({ "sessionId": session_id, "projectId": project_id }))
+}
+
+#[tauri::command]
+pub async fn workforce_chat_poll(
+    store: State<'_, WorkforceStore>,
+    runtime: State<'_, OpenCodeState>,
+    streams: State<'_, ChatStreams>,
+    project_id: String,
+) -> Result<Value, String> {
+    let store = store.inner();
+    let runtime = runtime.inner();
+    let (session_id, started_at, done, stored_text, streamed) = {
+        let guard = streams
+            .0
+            .lock()
+            .map_err(|_| "Chat stream lock poisoned".to_string())?;
+        let stream = guard
+            .get(&project_id)
+            .ok_or_else(|| "No orchestrator turn is streaming for this project.".to_string())?;
+        (
+            stream.session_id.clone(),
+            stream.started_at,
+            stream.done,
+            stream.text.clone(),
+            streamed_text(&stream.parts),
+        )
+    };
+    if done {
+        return Ok(json!({ "text": stored_text, "done": true }));
+    }
+
+    let session = unwrap_data(
+        runtime
+            .get_json(&format!("/api/session/{session_id}"))
+            .await?,
+    );
+    if let Some(error) = session_error(&session) {
+        return Err(provider_failure_message("opencode", "orchestrator", &error));
+    }
+    let messages = runtime
+        .get_json(&format!(
+            "/api/session/{session_id}/message?limit=50&order=desc"
+        ))
+        .await?;
+    let partial = latest_assistant_text(&messages, started_at).unwrap_or_default();
+    let finished = session_idle(&session)
+        .map(|idle_at| idle_at >= started_at)
+        .unwrap_or(false);
+    if !finished {
+        let partial = if streamed.trim().is_empty() {
+            partial
+        } else {
+            streamed
+        };
+        return Ok(json!({ "text": partial, "done": false }));
+    }
+
+    let reply = if partial.trim().is_empty() {
+        if streamed.trim().is_empty() {
+            "No assistant text returned.".to_string()
+        } else {
+            streamed
+        }
+    } else {
+        partial
+    };
+    let mut guard = streams
+        .0
+        .lock()
+        .map_err(|_| "Chat stream lock poisoned".to_string())?;
+    let Some(stream) = guard.get_mut(&project_id) else {
+        return Ok(json!({ "text": reply, "done": true }));
+    };
+    if stream.done {
+        return Ok(json!({ "text": stream.text.clone(), "done": true }));
+    }
+    let label = snapshot_value(store)
+        .ok()
+        .and_then(|snapshot| {
+            get_project(&snapshot, &project_id)
+                .ok()
+                .map(project_label)
+        })
+        .unwrap_or_else(|| project_id.clone());
+    store.update(|value| {
+        push_chat(
+            value,
+            "orchestrator",
+            &reply,
+            vec![json!({ "kind": "project", "id": project_id, "label": label })],
+        );
+        Ok(())
+    })?;
+    stream.done = true;
+    stream.text = reply.clone();
+
+    Ok(json!({ "text": reply, "done": true }))
 }
 
 #[tauri::command]
@@ -3428,41 +3681,59 @@ fn first_permission(value: &Value) -> Option<Value> {
     unwrap_data(value.clone()).as_array()?.first().cloned()
 }
 
-fn last_assistant_text(value: &Value) -> Option<String> {
-    let messages = unwrap_data(value.clone());
-    let messages = messages.as_array()?;
-    for message in messages.iter().rev() {
-        let is_assistant = message.get("type").and_then(Value::as_str) == Some("assistant")
-            || message.pointer("/info/role").and_then(Value::as_str) == Some("assistant");
-        if !is_assistant {
-            continue;
-        }
-        let mut parts = Vec::new();
-        let content = message
-            .get("content")
-            .and_then(Value::as_array)
-            .or_else(|| message.get("parts").and_then(Value::as_array));
-        if let Some(content) = content {
-            for part in content {
-                if part.get("type").and_then(Value::as_str) == Some("text") {
-                    if let Some(text) = part.get("text").and_then(Value::as_str) {
-                        if !text.is_empty() {
-                            parts.push(text.to_string());
-                        }
+fn assistant_text(message: &Value) -> Option<String> {
+    let is_assistant = message.get("type").and_then(Value::as_str) == Some("assistant")
+        || message.pointer("/info/role").and_then(Value::as_str) == Some("assistant");
+    if !is_assistant {
+        return None;
+    }
+    let mut parts = Vec::new();
+    let content = message
+        .get("content")
+        .and_then(Value::as_array)
+        .or_else(|| message.get("parts").and_then(Value::as_array));
+    if let Some(content) = content {
+        for part in content {
+            if part.get("type").and_then(Value::as_str) == Some("text") {
+                if let Some(text) = part.get("text").and_then(Value::as_str) {
+                    if !text.is_empty() {
+                        parts.push(text.to_string());
                     }
                 }
             }
         }
-        if !parts.is_empty() {
-            return Some(parts.join("\n"));
-        }
-        if let Some(text) = message.get("text").and_then(Value::as_str) {
-            if !text.is_empty() {
-                return Some(text.to_string());
-            }
-        }
     }
-    None
+    if !parts.is_empty() {
+        return Some(parts.join("\n"));
+    }
+    message
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn last_assistant_text(value: &Value) -> Option<String> {
+    let messages = unwrap_data(value.clone());
+    let messages = messages.as_array()?;
+    messages.iter().rev().find_map(assistant_text)
+}
+
+/// Messages arrive newest first. Only consider turns created after `since` so a
+/// streaming poll cannot display the previous reply before the new one starts.
+fn latest_assistant_text(value: &Value, since: u64) -> Option<String> {
+    let messages = unwrap_data(value.clone());
+    let messages = messages.as_array()?;
+    messages.iter().find_map(|message| {
+        let created = message
+            .pointer("/time/created")
+            .and_then(Value::as_u64)
+            .or_else(|| message.get("createdAt").and_then(Value::as_u64));
+        if created.map(|created| created < since).unwrap_or(false) {
+            return None;
+        }
+        assistant_text(message)
+    })
 }
 
 fn memory_threshold() -> f64 {
@@ -3494,6 +3765,101 @@ fn split_model(raw: &str) -> Result<(String, String), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sse_text_deltas_fill_only_the_active_stream() {
+        let streams = ChatStreams::default();
+        streams.0.lock().unwrap().insert(
+            "core".to_string(),
+            ChatStream {
+                session_id: "ses-chat".to_string(),
+                started_at: 100,
+                done: false,
+                text: String::new(),
+                message_id: None,
+                parts: HashMap::new(),
+            },
+        );
+        streams.absorb_text_event(
+            "session.text.started",
+            "ses-chat",
+            Some("msg-1"),
+            0,
+            None,
+            None,
+            150,
+        );
+        streams.absorb_text_event(
+            "session.text.delta",
+            "ses-chat",
+            Some("msg-1"),
+            0,
+            Some("Hello "),
+            None,
+            160,
+        );
+        streams.absorb_text_event(
+            "session.text.delta",
+            "ses-chat",
+            Some("msg-1"),
+            0,
+            Some("world"),
+            None,
+            170,
+        );
+        streams.absorb_text_event(
+            "session.text.delta",
+            "ses-chat",
+            Some("msg-1"),
+            0,
+            Some("stale"),
+            None,
+            50,
+        );
+        let text = {
+            let guard = streams.0.lock().unwrap();
+            streamed_text(&guard["core"].parts)
+        };
+        assert_eq!(text, "Hello world");
+
+        streams.absorb_text_event(
+            "session.text.started",
+            "ses-chat",
+            Some("msg-2"),
+            0,
+            None,
+            None,
+            200,
+        );
+        let reset = {
+            let guard = streams.0.lock().unwrap();
+            streamed_text(&guard["core"].parts)
+        };
+        assert!(reset.is_empty());
+    }
+
+    #[test]
+    fn streaming_text_ignores_previous_turn() {
+        let messages = json!({
+            "data": [
+                {
+                    "type": "assistant",
+                    "time": { "created": 300 },
+                    "content": [{ "type": "text", "text": "new reply" }]
+                },
+                {
+                    "type": "assistant",
+                    "time": { "created": 100 },
+                    "content": [{ "type": "text", "text": "old reply" }]
+                }
+            ]
+        });
+        assert_eq!(
+            latest_assistant_text(&messages, 200).as_deref(),
+            Some("new reply")
+        );
+        assert_eq!(latest_assistant_text(&messages, 400), None);
+    }
 
     #[test]
     fn provider_failures_get_a_clear_hint() {

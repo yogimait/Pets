@@ -193,6 +193,14 @@ Two running tasks maximum, one per owner. Test tasks were removed afterward.
 - 15-second polling remains as fallback because the OpenCode stream is volatile.
 - A Plan-created task started 5.8s after creation, below the 15-second fallback, consistent with event-driven start.
 
+### Orchestrator chat streaming
+
+- Sent a 300-word story prompt from the packaged release build.
+- The user turn appeared in the thread immediately, before the first model text.
+- Text-delta events produced about twenty visible partial updates between 8.3s and 14.3s, instead of one final block.
+- `workforce_chat_poll` stored exactly one user turn and one assistant turn in SQLite.
+- Sending while a turn is pending is blocked, so two streams cannot target the same project.
+
 To inspect it:
 
 ```powershell
@@ -393,7 +401,7 @@ The runtime panel shows a yellow dot for failed or pending MCP servers; hover th
 |---|---|---|
 | Onboarding | Create a project in an existing folder, a mid-project folder, and a brand-new folder | Folder path validates; starter files are only created when missing; project appears in selector |
 | Smoke | Launch desktop app with a fresh data directory | Empty real workspace seed writes SQLite once; all seven views render |
-| Orchestrator chat | Send a short prompt to `core` | Reply is stored in chat and survives restart |
+| Orchestrator chat | Send a short prompt to `core` | User turn appears immediately; assistant text streams; final reply is stored once and survives restart |
 | Plan | Plan one small task | JSON parses; one queued task appears; no duplicate plan tasks |
 | Execution | Run a read-only task | Task moves queued -> running -> review; session id stored |
 | Review | Accept the result | Task is done; dependent task becomes eligible |

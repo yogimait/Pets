@@ -48,7 +48,9 @@ Views receive a `Snapshot` prop. They never import fixture data directly. `src/l
 | `workforce_create_project` | Add or import a project; optionally create folder, starter policy/README, and Git repo |
 | `workforce_create_task` | Create a manual queued task with owner, priority, acceptance, and optional auto-start |
 | `workforce_plan` | Ask the orchestrator for a task plan, create tasks, append activity and chat |
-| `workforce_send` | Send an orchestrator chat prompt and store the reply |
+| `workforce_send` | Blocking chat fallback; waits for the full reply and stores it |
+| `workforce_send_start` | Persist the user turn, start the OpenCode prompt, and register a streaming turn |
+| `workforce_chat_poll` | Return partial streamed text, then store the final reply exactly once |
 | `workforce_tick` | Start ready queued tasks |
 | `workforce_poll` | Finish running sessions, auto-accept results, or mark blocked |
 | `workforce_run_task` | Run or retry one task |
@@ -154,7 +156,7 @@ Run `npm run sync:agents` after changing a role prompt. `npm run check:agents` v
 
 The overlay has two modes:
 
-- **Chat**: real `workforce_send` in Tauri; the browser preview cannot chat. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
+- **Chat**: real `workforce_send_start` plus `workforce_chat_poll` in Tauri; the browser preview cannot chat. The user turn is stored before the runtime starts, and assistant text is appended from OpenCode `session.text.delta` events while the turn runs. `workforce_chat_poll` is the fallback and stores the authoritative final reply exactly once. Assistant replies render through `Markdown.svelte`, a safe subset parser that never injects raw HTML.
 - **Plan & run**: real `workforce_plan`; creates queued tasks and returns a summary. The scheduler starts ready tasks automatically.
 
 Reference chips open the linked task, agent, or project in the main window. The overlay does not expose model or API configuration.

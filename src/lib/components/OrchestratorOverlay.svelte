@@ -19,6 +19,7 @@
   let projectId = $state("core");
   let mode = $state<"chat" | "plan">("chat");
   let planSummary = $state<string | null>(null);
+  let streamingText = $state("");
   let input = $state<HTMLTextAreaElement | null>(null);
   let body = $state<HTMLDivElement | null>(null);
   let lastMessage = $state<HTMLElement | null>(null);
@@ -64,6 +65,7 @@
   $effect(() => {
     const lastId = visible.at(-1)?.id;
     void lastId;
+    void streamingText;
     if (!body) return;
     if (app.pending) {
       body.scrollTop = body.scrollHeight;
@@ -108,19 +110,34 @@
       at: Date.now(),
       refs: [projectRef()],
     });
+    app.pendingChat = [
+      {
+        id: `pending-${Date.now()}-${sequence++}`,
+        role: "user",
+        text,
+        at: Date.now(),
+        refs: [projectRef()],
+      },
+    ];
     draft = "";
     app.pending = true;
+    streamingText = "";
 
     if (!live) {
       app.pending = false;
+      app.pendingChat = [];
       app.workforceError = "Chat requires the desktop app.";
       return;
     }
 
     try {
-      await sendOrchestrator(projectId, text);
+      const sent = await sendOrchestrator(projectId, text, (chunk) => {
+        streamingText = chunk;
+      });
+      if (sent) app.pendingChat = [];
     } finally {
       app.pending = false;
+      streamingText = "";
     }
   }
 
@@ -215,13 +232,23 @@
     {/each}
 
     {#if app.pending}
-      <div class="py-4" aria-live="polite">
-        <span class="text-[10.5px] uppercase tracking-[0.16em] text-[#8a8a8a]">Micheal</span>
-        <p class="mt-2 flex items-center gap-2 text-[14px] text-[#8a8a8a]">
-          <span class="size-1.5 animate-pulse bg-[#ededed]" aria-hidden="true"></span>
-          {mode === "plan" ? "Planning" : "Working"}
-        </p>
-      </div>
+      {#if streamingText.trim()}
+        <article class="border-b border-[#1a1a1a] py-4 last:border-b-0" aria-live="polite">
+          <div class="flex items-baseline justify-between gap-3">
+            <span class="text-[10.5px] uppercase tracking-[0.16em] text-[#8a8a8a]">Micheal</span>
+            <span class="font-mono text-[10px] text-[#4d4d4d]">{clockTime(Date.now())}</span>
+          </div>
+          <div class="mt-2"><Markdown text={streamingText} /></div>
+        </article>
+      {:else}
+        <div class="py-4" aria-live="polite">
+          <span class="text-[10.5px] uppercase tracking-[0.16em] text-[#8a8a8a]">Micheal</span>
+          <p class="mt-2 flex items-center gap-2 text-[14px] text-[#8a8a8a]">
+            <span class="size-1.5 animate-pulse bg-[#ededed]" aria-hidden="true"></span>
+            {mode === "plan" ? "Planning" : "Working"}
+          </p>
+        </div>
+      {/if}
     {/if}
     </div>
   </div>
@@ -232,6 +259,7 @@
       <select
         id="orchestrator-project"
         bind:value={projectId}
+        disabled={app.pending}
         class="h-9 min-h-9 border border-[#232323] bg-[#0a0a0a] px-2.5 text-[12px] text-[#b4b4b4] focus:border-[#ededed] focus:outline-none"
       >
         {#each app.snapshot?.projects ?? [] as project (project.id)}
