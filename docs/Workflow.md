@@ -108,14 +108,14 @@ What is live:
 
 - **Orchestrator chat**: your message appears immediately and is stored before the model starts; assistant text streams in from OpenCode text-delta events. Reasoning time shows as `Working` before the first text arrives.
 - **Alerts bell**: badge for permission requests, review results, and blocked tasks; click an item to open the task.
-- **Tasks**: queued/running/review/blocked/done status, session id, result, permission card, and a review banner with a Review next shortcut.
+- **Tasks**: queued/running/review/blocked/done status, session id, Live output while running (assistant text polled every 1.2s), result, permission card, verification status and output, cost, changed files, and a review banner with a Review next shortcut.
 - **Activity**: start, finish, permission, accept, delegation, and memory events.
 - **Overview**: active work and recent activity.
 - **Pet pen**: all nine agents confined in one draggable/resizable enclosure; the in-pen bubble shows status, current task, and latest activity.
 
 What is not live:
 
-- Task output is not token-streamed into the task card; chat text is. Reasoning text is not shown.
+- Reasoning text is not shown; task streaming shows assistant text parts only.
 - No reliable percentage progress. `steps` are usually empty, so the progress bar stays at 0 until a result exists.
 - The orchestrator does not push progress reports. It can now read the task board and reports when you message it.
 - The app polls the session and updates status; the task result appears at review.

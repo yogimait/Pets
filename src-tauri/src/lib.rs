@@ -669,6 +669,7 @@ pub fn run() {
             workforce::workforce_chat_poll,
             workforce::workforce_chat_resume,
             workforce::workforce_attachment_data,
+            workforce::workforce_task_stream,
             workforce::workforce_tick,
             workforce::workforce_poll,
             workforce::workforce_reply_task_permission,

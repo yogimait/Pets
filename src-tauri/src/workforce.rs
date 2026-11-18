@@ -1,5 +1,9 @@
-use crate::opencode::debug_log;
-use crate::opencode::OpenCodeState;
+use crate::opencode::{debug_log, OpenCodeState};
+
+#[cfg(windows)]
+use crate::opencode::CREATE_NO_WINDOW;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use crate::{devvault_path, global_policy_path, now_ms};
 use base64::Engine;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -21,6 +25,26 @@ const RUNNING_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 const PROMPT_BUDGET: usize = 20_000;
 const MAX_AUTO_PERMISSIONS: usize = 16;
 const MAX_AUTO_RETRIES: u64 = 2;
+
+/// Model per role. Falls back to AGENT_BOTS_MODEL, then the default.
+fn model_config_kind(kind: &str) -> Result<(String, String), String> {
+    let raw = std::env::var(format!("AGENT_BOTS_MODEL_{kind}"))
+        .or_else(|_| std::env::var("AGENT_BOTS_MODEL"))
+        .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+    split_model(&raw)
+}
+
+fn clamp_concurrency(raw: Option<usize>) -> usize {
+    raw.unwrap_or(2).clamp(2, 6)
+}
+
+fn max_concurrent() -> usize {
+    clamp_concurrency(
+        std::env::var("AGENT_BOTS_MAX_CONCURRENT")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok()),
+    )
+}
 const DEFAULT_MEMORY_THRESHOLD: f64 = 0.8;
 const KNOWN_MCP: &[&str] = &["playwright", "n8n-mcp", "stitch", "rea", "jev", "laya"];
 const MCP_STARTUP_WAIT: Duration = Duration::from_secs(20);
@@ -500,6 +524,9 @@ pub fn workforce_create_project(
     init_git: Option<bool>,
     autonomy: Option<bool>,
     max_phases: Option<u32>,
+    verify_command: Option<String>,
+    schedule_hours: Option<u32>,
+    schedule_goal: Option<String>,
 ) -> Result<Value, String> {
     let max_phases = max_phases.unwrap_or(6).clamp(1, 20);
     let store = store.inner();
@@ -644,7 +671,11 @@ pub fn workforce_create_project(
         "createdAt": now_ms(),
         "autonomy": autonomy.unwrap_or(true),
         "phase": 0,
-        "maxPhases": max_phases
+        "maxPhases": max_phases,
+        "verifyCommand": verify_command.unwrap_or_default().trim(),
+        "scheduleHours": schedule_hours.unwrap_or(0),
+        "scheduleGoal": schedule_goal.unwrap_or_default().trim(),
+        "nextRunAt": Value::Null
     });
     let created_path = path.display().to_string();
     let summary = format!(
@@ -1003,7 +1034,7 @@ pub async fn workforce_send(
     let repo = repo_path(&project)?;
     require_policy(&repo)?;
     runtime.ensure(&repo).await?;
-    let (provider_id, model_id) = model_config()?;
+    let (provider_id, model_id) = model_config_kind("CHAT")?;
     let prompt = send_prompt(&snapshot, &project, &text);
 
     let session_id = match store.session_for(&project_id) {
@@ -1108,7 +1139,7 @@ pub async fn workforce_send_start(
     // Give the global SSE listener a moment to attach so the first deltas are
     // not lost when the service was cold; polling still covers a timeout.
     let _ = runtime.wait_for_event_stream(Duration::from_secs(2)).await;
-    let (provider_id, model_id) = model_config()?;
+    let (provider_id, model_id) = model_config_kind("CHAT")?;
 
     let session_id = match store.session_for(&project_id) {
         Some(session_id) => session_id,
@@ -1343,6 +1374,36 @@ pub fn workforce_attachment_data(
     }))
 }
 
+/// Partial latest assistant text for a running task's session, so the task
+/// sheet can stream what the specialist is writing.
+#[tauri::command]
+pub async fn workforce_task_stream(
+    store: State<'_, WorkforceStore>,
+    runtime: State<'_, OpenCodeState>,
+    task_id: String,
+) -> Result<Value, String> {
+    let store = store.inner();
+    let runtime = runtime.inner();
+    let snapshot = snapshot_value(store)?;
+    let task = find_task(&snapshot, &task_id)
+        .ok_or_else(|| format!("Unknown task: {task_id}"))?;
+    let running = task.get("status").and_then(Value::as_str) == Some("running");
+    let Some(session_id) = task.get("sessionId").and_then(Value::as_str) else {
+        return Ok(json!({ "text": "", "running": running }));
+    };
+    let messages = match runtime
+        .get_json(&format!(
+            "/api/session/{session_id}/message?limit=20&order=desc"
+        ))
+        .await
+    {
+        Ok(value) => value,
+        Err(_) => return Ok(json!({ "text": "", "running": running })),
+    };
+    let text = last_assistant_text(&messages).unwrap_or_default();
+    Ok(json!({ "text": text, "running": running }))
+}
+
 enum ChatActionResult {
     TaskCreated { id: String, title: String },
     Planned { summary: String, count: usize },
@@ -1572,7 +1633,7 @@ pub async fn workforce_tick(
         let snapshot = snapshot_value(store)?;
         ready_tasks(&snapshot)
     } {
-        if started >= 2 {
+        if started >= max_concurrent() {
             break;
         }
         match start_task(store, runtime, &task_id).await {
@@ -1596,7 +1657,97 @@ pub async fn workforce_tick(
             Err(_) => {}
         }
     }
+    run_scheduled_plan(store, runtime).await;
     snapshot_value(store)
+}
+
+/// A project is due for its scheduled plan when the cadence is on and the
+/// next-run time has passed (missing means immediately due on first tick).
+fn schedule_due(project: &Value, now: u64) -> bool {
+    let active = project.get("status").and_then(Value::as_str) == Some("active");
+    let hours = project.get("scheduleHours").and_then(Value::as_u64).unwrap_or(0);
+    let due = project
+        .get("nextRunAt")
+        .and_then(Value::as_u64)
+        .map(|next| next <= now)
+        .unwrap_or(true);
+    active && hours > 0 && due
+}
+
+/// One scheduled goal per tick, when its cadence is due and the project has no
+/// open work. The plan runs the same planner as Plan mode.
+async fn run_scheduled_plan(store: &WorkforceStore, runtime: &OpenCodeState) {
+    let Ok(snapshot) = snapshot_value(store) else {
+        return;
+    };
+    let now = now_ms();
+    let Some(project) = snapshot
+        .get("projects")
+        .and_then(Value::as_array)
+        .and_then(|projects| {
+            projects.iter().find(|project| schedule_due(project, now))
+        })
+        .cloned()
+    else {
+        return;
+    };
+    let Some(project_id) = project.get("id").and_then(Value::as_str) else {
+        return;
+    };
+    let has_open = snapshot
+        .get("tasks")
+        .and_then(Value::as_array)
+        .map(|tasks| {
+            tasks.iter().any(|task| {
+                task.get("projectId").and_then(Value::as_str) == Some(project_id)
+                    && matches!(
+                        task.get("status").and_then(Value::as_str),
+                        Some("queued") | Some("running") | Some("review")
+                    )
+            })
+        })
+        .unwrap_or(false);
+    let Some(goal) = project
+        .get("scheduleGoal")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|goal| !goal.is_empty())
+        .map(str::to_string)
+    else {
+        return;
+    };
+    let hours = project.get("scheduleHours").and_then(Value::as_u64).unwrap_or(0);
+    let next_run = now + hours.saturating_mul(3_600_000);
+    let project_id_owned = project_id.to_string();
+    let _ = store.update(|value| {
+        if let Some(projects) = value.get_mut("projects").and_then(Value::as_array_mut) {
+            if let Some(record) = projects.iter_mut().find(|record| {
+                record.get("id").and_then(Value::as_str) == Some(&project_id_owned)
+            }) {
+                record["nextRunAt"] = json!(next_run);
+            }
+        }
+        Ok(())
+    });
+    if has_open {
+        return;
+    }
+    let label = project_label(&project);
+    if let Ok((summary, tasks)) = execute_plan(store, runtime, project_id, &goal).await {
+        let _ = store.update(|value| {
+            push_activity(
+                value,
+                "delegation",
+                "orchestrator",
+                Some(project_id),
+                None,
+                &format!("scheduled plan for {label}: {}", truncate(&summary, 200)),
+                Some(&goal),
+            );
+            Ok(())
+        });
+        let _ = tasks;
+    }
 }
 
 #[tauri::command]
@@ -1829,10 +1980,59 @@ pub async fn workforce_poll(
         };
         let text = last_assistant_text(&messages)
             .unwrap_or_else(|| "No assistant text returned.".to_string());
-        store.update(|value| {
+        let cost = session.get("cost").and_then(Value::as_f64);
+        let next = store.update(|value| {
             mark_review(value, &task_id, &text);
+            if let Some(cost) = cost {
+                if let Some(task) = find_task_mut(value, &task_id) {
+                    task["cost"] = json!(cost);
+                }
+            }
             Ok(())
         })?;
+        // Verification gate: when the project defines a command, it must pass
+        // before the result is accepted. The command runs in the isolated
+        // worktree when one exists, so the merged code is what was checked.
+        let verify_command = find_task(&next, &task_id)
+            .and_then(|task| task.get("projectId").and_then(Value::as_str))
+            .and_then(|project_id| get_project(&next, project_id).ok())
+            .and_then(|project| {
+                project
+                    .get("verifyCommand")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|command| !command.is_empty())
+                    .map(str::to_string)
+            });
+        if let Some(command) = verify_command {
+            let work_dir = find_task(&next, &task_id)
+                .and_then(|task| task.get("worktreePath").and_then(Value::as_str))
+                .map(str::to_string)
+                .unwrap_or_else(|| repo.clone());
+            let outcome = run_verification(&work_dir, &command);
+            store.update(|value| {
+                if let Some(task) = find_task_mut(value, &task_id) {
+                    task["verification"] = json!({
+                        "status": if outcome.passed { "passed" } else { "failed" },
+                        "at": now_ms(),
+                        "output": outcome.output
+                    });
+                    task["updatedAt"] = json!(now_ms());
+                }
+                Ok(())
+            })?;
+            if !outcome.passed {
+                store.update(|value| {
+                    mark_blocked(
+                        value,
+                        &task_id,
+                        &format!("Verification failed. Command: {command}"),
+                    );
+                    Ok(())
+                })?;
+                continue;
+            }
+        }
         if let Err(error) = accept_review_task(store, &task_id) {
             store.update(|value| {
                 mark_blocked(value, &task_id, &format!("Automatic acceptance failed: {error}"));
@@ -1945,12 +2145,18 @@ fn accept_review_task(store: &WorkforceStore, task_id: &str) -> Result<Value, St
         .and_then(Value::as_str)
         .ok_or_else(|| format!("Task {task_id} has no projectId."))?;
     let base_repo = repo_path(get_project(&snapshot, project_id)?)?;
+    let changed_files = worktree_changed_files(&base_repo, current);
     let merged_branch = merge_isolated_worktree(&base_repo, current)?;
     store.update(|value| {
         let current_status = find_task(value, &task_id)
             .and_then(|task| task.get("status").and_then(Value::as_str));
         if current_status != Some("review") {
             return Err(format!("Task {task_id} is no longer in review."));
+        }
+        if let Some(task) = find_task_mut(value, &task_id) {
+            if !changed_files.is_empty() {
+                task["files"] = json!(changed_files);
+            }
         }
         let (owner, project_id, title) = task_meta(value, &task_id);
         if let Some(task) = find_task_mut(value, &task_id) {
@@ -2183,7 +2389,7 @@ pub async fn workforce_dreamer(
     let title = format!("{} · Dreamer", project_label(&project));
     // Give Dreamer the images the operator recently shared in project chat so
     // its observations come from the raw picture, not a summary of one.
-    let (_session_id, text) = run_once_with_files(
+    let (_session_id, text) = run_once_with_kind(
         runtime,
         &repo,
         &title,
@@ -2191,6 +2397,7 @@ pub async fn workforce_dreamer(
         &prompt,
         None,
         dreamer_image_files(store, &snapshot, &project_id, 4),
+        "DREAMER",
     )
     .await?;
     let parsed = extract_json_object(&text)
@@ -2468,10 +2675,10 @@ async fn run_once(
     prompt: &str,
     permissions: Option<Value>,
 ) -> Result<(String, String), String> {
-    run_once_with_files(runtime, project, title, agent, prompt, permissions, Vec::new()).await
+    run_once_with_kind(runtime, project, title, agent, prompt, permissions, Vec::new(), "TASK").await
 }
 
-async fn run_once_with_files(
+async fn run_once_with_kind(
     runtime: &OpenCodeState,
     project: &str,
     title: &str,
@@ -2479,10 +2686,11 @@ async fn run_once_with_files(
     prompt: &str,
     permissions: Option<Value>,
     files: Vec<Value>,
+    kind: &str,
 ) -> Result<(String, String), String> {
     require_policy(project)?;
     runtime.ensure(project).await?;
-    let (provider_id, model_id) = model_config()?;
+    let (provider_id, model_id) = model_config_kind(kind)?;
     let session = create_session(
         runtime,
         project,
@@ -2632,8 +2840,11 @@ async fn start_task(
                 .count()
         })
         .unwrap_or(0);
-    if running_count >= 2 {
-        return Err("Concurrency limit reached: two tasks are already running.".to_string());
+    if running_count >= max_concurrent() {
+        return Err(format!(
+            "Concurrency limit reached: {} tasks are already running.",
+            max_concurrent()
+        ));
     }
     if snapshot
         .get("tasks")
@@ -2669,7 +2880,7 @@ async fn start_task(
         preflight_mcp(runtime, &work_dir, &required_mcp).await?;
     }
     require_policy(&work_dir)?;
-    let (provider_id, model_id) = model_config()?;
+    let (provider_id, model_id) = model_config_kind("TASK")?;
     let agent_id = opencode_agent_id(&snapshot, &owner);
     let prompt_project = if worktree.is_some() {
         let mut project = project.clone();
@@ -3104,8 +3315,67 @@ fn mark_review(snapshot: &mut Value, task_id: &str, text: &str) {
     );
 }
 
-fn mark_blocked(snapshot: &mut Value, task_id: &str, note: &str) {
-    match find_task(snapshot, task_id).and_then(|task| task.get("status").and_then(Value::as_str)) {
+struct VerificationOutcome {
+    passed: bool,
+    output: String,
+}
+
+/// Run a project's verification command with no visible console window. The
+/// stored output is capped so a noisy test suite cannot bloat the snapshot.
+fn run_verification(work_dir: &str, command: &str) -> VerificationOutcome {
+    #[cfg(windows)]
+    let mut process = {
+        let mut process = Command::new("cmd");
+        process.args(["/C", command]);
+        process.creation_flags(CREATE_NO_WINDOW);
+        process
+    };
+    #[cfg(not(windows))]
+    let mut process = Command::new("sh");
+    #[cfg(not(windows))]
+    process.args(["-c", command]);
+    let output = process
+        .current_dir(work_dir)
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .output();
+    match output {
+        Ok(output) => {
+            let mut text = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.trim().is_empty() {
+                text.push_str("\n");
+                text.push_str(&stderr);
+            }
+            VerificationOutcome {
+                passed: output.status.success(),
+                output: truncate(text.trim(), 4_000).to_string(),
+            }
+        }
+        Err(error) => VerificationOutcome {
+            passed: false,
+            output: format!("Could not run verification command: {error}"),
+        },
+    }
+}
+
+/// Files a task's worktree branch changed relative to the base branch.
+/// Empty when the task has no worktree or git fails; never blocks the merge.
+fn worktree_changed_files(repo: &str, task: &Value) -> Vec<String> {
+    let Some(branch) = task.get("worktreeBranch").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+    git_output(repo, &["diff", "--name-only", &format!("HEAD...{branch}")])
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .take(50)
+        .collect()
+}
+
+fn mark_blocked(snapshot: &mut Value, task_id: &str, note: &str) {    match find_task(snapshot, task_id).and_then(|task| task.get("status").and_then(Value::as_str)) {
         Some("blocked") | Some("done") => return,
         _ => {}
     }
@@ -3621,7 +3891,17 @@ fn task_prompt(snapshot: &Value, project: &Value, task: &Value, agent_id: &str) 
     let hub_note = vault
         .join("Projects")
         .join(format!("{}.md", project_name.replace(' ', "-")));
-    let memory = memory_context(snapshot, project_id, 8);
+    let memory = ranked_memory_context(
+        snapshot,
+        project_id,
+        &format!(
+            "{} {} {}",
+            task.get("title").and_then(Value::as_str).unwrap_or(""),
+            task.get("description").and_then(Value::as_str).unwrap_or(""),
+            task.get("acceptance").and_then(Value::as_str).unwrap_or("")
+        ),
+        8,
+    );
     let handoff = handoff_contract(repo);
     let acceptance = task
         .get("acceptance")
@@ -3866,6 +4146,62 @@ fn project_task_titles(snapshot: &Value, project: &Value) -> String {
 
 fn memory_context(snapshot: &Value, project_id: &str, limit: usize) -> String {
     all_memory_context(snapshot, project_id, limit).join("\n")
+}
+
+/// Keyword-overlap relevance score between a task and a memory entry. Short
+/// tokens are ignored so common words do not dominate the ranking.
+fn memory_relevance(entry: &Value, task_text: &str) -> usize {
+    let haystack = format!(
+        "{} {} {}",
+        entry.get("title").and_then(Value::as_str).unwrap_or(""),
+        entry.get("content").and_then(Value::as_str).unwrap_or(""),
+        entry
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(|tags| tags.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
+            .unwrap_or_default(),
+    )
+    .to_ascii_lowercase();
+    task_text
+        .to_ascii_lowercase()
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|token| token.len() >= 4)
+        .map(|token| token.to_string())
+        .collect::<std::collections::HashSet<_>>()
+        .iter()
+        .filter(|token| haystack.contains(token.as_str()))
+        .count()
+}
+
+/// Top memory entries by relevance to the task text, recency as tiebreaker.
+fn ranked_memory_context(
+    snapshot: &Value,
+    project_id: &str,
+    task_text: &str,
+    limit: usize,
+) -> String {
+    let Some(memory) = snapshot.get("memory").and_then(Value::as_array) else {
+        return String::new();
+    };
+    let mut candidates: Vec<(usize, usize, &Value)> = memory
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.get("projectId").and_then(Value::as_str) == Some(project_id))
+        .map(|(index, entry)| (memory_relevance(entry, task_text), index, entry))
+        .collect();
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    candidates
+        .into_iter()
+        .take(limit)
+        .map(|(_, _, entry)| {
+            format!(
+                "- {}: {}",
+                entry.get("title").and_then(Value::as_str).unwrap_or(""),
+                truncate(entry.get("content").and_then(Value::as_str).unwrap_or(""), 600)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn all_memory_context(snapshot: &Value, project_id: &str, limit: usize) -> Vec<String> {
@@ -4482,11 +4818,6 @@ fn memory_threshold() -> f64 {
         .unwrap_or(DEFAULT_MEMORY_THRESHOLD)
 }
 
-fn model_config() -> Result<(String, String), String> {
-    let raw = std::env::var("AGENT_BOTS_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
-    split_model(&raw)
-}
-
 fn split_model(raw: &str) -> Result<(String, String), String> {
     let trimmed = raw.trim();
     let (provider, model) = trimmed
@@ -4597,6 +4928,64 @@ mod tests {
             Some("new reply")
         );
         assert_eq!(latest_assistant_text(&messages, 400), None);
+    }
+
+    #[test]
+    fn scheduled_plan_due_rules() {
+        let base = json!({ "status": "active", "scheduleHours": 24, "scheduleGoal": "plan" });
+        assert!(schedule_due(&base, 1_000));
+        assert!(!schedule_due(
+            &json!({ "status": "active", "scheduleHours": 24, "nextRunAt": 5_000 }),
+            1_000
+        ));
+        assert!(schedule_due(
+            &json!({ "status": "active", "scheduleHours": 24, "nextRunAt": 5_000 }),
+            5_000
+        ));
+        assert!(!schedule_due(&json!({ "status": "active", "scheduleHours": 0 }), 1_000));
+        assert!(!schedule_due(
+            &json!({ "status": "paused", "scheduleHours": 24 }),
+            1_000
+        ));
+    }
+
+    #[test]
+    fn ranked_memory_prefers_relevant_entries() {
+        let snapshot = json!({
+            "memory": [
+                { "projectId": "core", "title": "Coffee machine", "content": "The kitchen coffee machine is broken.", "tags": [] },
+                { "projectId": "core", "title": "Auth middleware", "content": "Login uses bearer tokens in the auth middleware.", "tags": ["auth"] },
+                { "projectId": "other", "title": "Auth", "content": "Different project entirely.", "tags": [] }
+            ]
+        });
+        let text = ranked_memory_context(&snapshot, "core", "Fix the login auth middleware token expiry", 1);
+        assert!(text.contains("Auth middleware"));
+        assert!(!text.contains("Coffee machine"));
+        assert!(!text.contains("Different project"));
+
+        // No overlap falls back to recency without panicking.
+        let none = ranked_memory_context(&snapshot, "core", "unrelated words here", 8);
+        assert!(none.contains("Coffee machine"));
+    }
+
+    #[test]
+    fn concurrency_clamps_between_two_and_six() {
+        assert_eq!(clamp_concurrency(None), 2);
+        assert_eq!(clamp_concurrency(Some(1)), 2);
+        assert_eq!(clamp_concurrency(Some(4)), 4);
+        assert_eq!(clamp_concurrency(Some(9)), 6);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn verification_command_passes_and_fails() {
+        let passed = run_verification(".", "exit 0");
+        assert!(passed.passed);
+        let failed = run_verification(".", "exit 1");
+        assert!(!failed.passed);
+        let missing = run_verification(".", "definitely-not-a-real-command-xyz");
+        assert!(!missing.passed);
+        assert!(!missing.output.trim().is_empty());
     }
 
     #[test]

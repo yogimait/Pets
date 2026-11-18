@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone)]
 struct SharedTarget {

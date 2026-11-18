@@ -21,6 +21,9 @@
   let initGit = $state(false);
   let autonomy = $state(true);
   let maxPhases = $state(6);
+  let verifyCommand = $state("");
+  let scheduleHours = $state(0);
+  let scheduleGoal = $state("");
   let inspection = $state<ProjectInspection | null>(null);
   let inspecting = $state(false);
   let busy = $state(false);
@@ -93,6 +96,9 @@
         initGit,
         autonomy,
         maxPhases,
+        verifyCommand: verifyCommand.trim(),
+        scheduleHours: Number(scheduleHours) || 0,
+        scheduleGoal: scheduleGoal.trim(),
       });
       if (id) {
         closeSheet();
@@ -231,6 +237,40 @@
             class="h-7 w-16 rounded-control border border-line-soft bg-canvas px-2 text-[11px] text-ink-2"
           />
         </label>
+
+        <label class="block space-y-1">
+          <span class="block text-[10px] uppercase tracking-[0.1em] text-ink-4">Verification command (optional)</span>
+          <input
+            bind:value={verifyCommand}
+            class={inputClass}
+            placeholder="e.g. npm test --silent"
+          />
+          <span class="block text-[9.5px] text-ink-4">Runs in the task worktree before the result is accepted. A failing command blocks the task with its output.</span>
+        </label>
+
+        <label class="flex items-center gap-2 text-[11px] text-ink-2">
+          <span class="text-ink-4">Scheduled plan every</span>
+          <input
+            type="number"
+            bind:value={scheduleHours}
+            min="0"
+            max="168"
+            class="h-7 w-16 rounded-control border border-line-soft bg-canvas px-2 text-[11px] text-ink-2"
+          />
+          <span class="text-ink-4">hours, 0 = off</span>
+        </label>
+        {#if Number(scheduleHours) > 0}
+          <label class="block space-y-1">
+            <span class="block text-[10px] uppercase tracking-[0.1em] text-ink-4">Scheduled goal</span>
+            <textarea
+              bind:value={scheduleGoal}
+              rows={2}
+              class="w-full resize-y rounded-control border border-line-soft bg-canvas p-2.5 text-[11.5px] leading-relaxed text-ink placeholder:text-ink-4 focus:border-accent/40 focus:outline-none"
+              placeholder="e.g. Review yesterday's work and plan today's next step"
+            ></textarea>
+            <span class="block text-[9.5px] text-ink-4">The orchestrator plans this goal whenever the project has no open work and the cadence is due.</span>
+          </label>
+        {/if}
 
         <label class="flex items-start gap-2 text-[11px] text-ink-2">
           <input type="checkbox" bind:checked={createFolder} class="mt-0.5 size-3 accent-[#8ca6c0]" />

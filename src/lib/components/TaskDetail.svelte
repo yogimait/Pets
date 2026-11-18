@@ -6,7 +6,7 @@
   import StatusBadge from "./StatusBadge.svelte";
   import { abortTask, acceptTask, app, closeSheet, openSheet, openTask, rejectTask, replyTaskPermission, runTask, updateTask } from "../state/app.svelte.ts";
   import { agentById, projectById, taskById, taskStepProgress } from "../selectors.ts";
-  import { workforceAvailable } from "../workforce.ts";
+  import { workforceAvailable, workforceTaskStream } from "../workforce.ts";
   import { fullTimestamp, timeAgo } from "../format.ts";
 
   let { id }: { id: string } = $props();
@@ -59,6 +59,34 @@
     high: "text-warn",
     critical: "text-bad",
   };
+
+  let streamText = $state("");
+  let streamRunning = $state(false);
+
+  $effect(() => {
+    const running = live && task?.status === "running" && Boolean(task?.sessionId);
+    streamRunning = Boolean(running);
+    if (!running || !task) {
+      streamText = "";
+      return;
+    }
+    const taskId = task.id;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const stream = await workforceTaskStream(taskId);
+        if (!cancelled) streamText = stream.text;
+      } catch {
+        /* the sheet stays usable when the stream is unavailable */
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, 1_200);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  });
 
   function senderName(senderId: string): string {
     if (!app.snapshot) return senderId;
@@ -292,9 +320,43 @@
         </Section>
       {/if}
 
+      {#if streamRunning && streamText.trim()}
+        <Section title="Live output">
+          <p class="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-control border border-accent/25 bg-canvas p-3 text-[11.5px] leading-relaxed text-ink-2"
+            aria-live="polite"
+          >{streamText}</p>
+        </Section>
+      {/if}
+
       {#if task.result}
         <Section title="Result">
           <p class="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-control border border-line-soft bg-canvas p-3 text-[11.5px] leading-relaxed text-ink-2">{task.result}</p>
+        </Section>
+      {/if}
+
+      {#if task.verification}
+        <Section title="Verification">
+          <p class="text-[10.5px] {task.verification.status === 'passed' ? 'text-ok' : 'text-bad'}">
+            {task.verification.status === "passed" ? "Passed" : "Failed"} A� {timeAgo(task.verification.at)}
+          </p>
+          <p class="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-control border border-line-soft bg-canvas p-2.5 font-mono text-[10px] leading-relaxed text-ink-3"
+            >{task.verification.output || "(no output)"}</p>
+        </Section>
+      {/if}
+
+      {#if typeof task.cost === "number" && task.cost > 0}
+        <Section title="Cost">
+          <p class="font-mono text-[11px] text-ink-2">${task.cost.toFixed(4)}</p>
+        </Section>
+      {/if}
+
+      {#if task.files && task.files.length > 0}
+        <Section title={`Changed files A� ${task.files.length}`}>
+          <div class="flex flex-wrap gap-1.5">
+            {#each task.files as file (file)}
+              <span class="max-w-full truncate rounded border border-line-soft bg-raised px-1.5 py-0.5 font-mono text-[9.5px] text-ink-3">{file}</span>
+            {/each}
+          </div>
         </Section>
       {/if}
 

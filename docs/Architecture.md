@@ -53,6 +53,7 @@ Views receive a `Snapshot` prop. They never import fixture data directly. `src/l
 | `workforce_chat_poll` | Return partial streamed text, execute a trailing ```agent-bots action block, and store the final reply exactly once |
 | `workforce_chat_resume` | Report and hydrate a streaming turn that outlived an app restart |
 | `workforce_attachment_data` | Read stored attachment bytes for rendering; attachments directory only |
+| `workforce_task_stream` | Latest assistant text of a running task's session for the Live output panel |
 | `workforce_tick` | Start ready queued tasks |
 | `workforce_poll` | Finish running sessions, auto-accept results, or mark blocked |
 | `workforce_run_task` | Run or retry one task |
@@ -110,7 +111,7 @@ The app does not implement a second model/tool loop. It attaches to the shared O
 - Dreamer uses `dreamer`.
 - A session completion is auto-accepted: the result is stored, an isolated worktree is merged, and dependent tasks become eligible. A missing session, merge failure, permission-budget exhaustion, or a run longer than 30 minutes becomes blocked.
 - Permissions: generated agent files allow workspace tools and MCP but deny questions, secrets, external directories, subagents, edits for the orchestrator, and obvious destructive commands. Task permission requests are auto-approved once up to 16 per task. Manual review actions remain as a fallback.
-- Model selection: `AGENT_BOTS_MODEL` as `provider/model`, otherwise `opencode-go/deepseek-v4.1-flash`.
+- Model selection: `AGENT_BOTS_MODEL` as `provider/model`, otherwise `opencode-go/deepseek-v4.1-flash`. Per-role overrides: `AGENT_BOTS_MODEL_CHAT`, `AGENT_BOTS_MODEL_TASK`, `AGENT_BOTS_MODEL_DREAMER`; each falls back to `AGENT_BOTS_MODEL`. Concurrency: `AGENT_BOTS_MAX_CONCURRENT`, clamped 2–6, default 2.
 - The global `AGENTS.md` and project `AGENTS.md` must both exist before a real run. The task prompt includes both policies, the role prompt, approved project memory, the DevVault root/Home/hub paths with the global maintenance rule, acceptance criteria, and the handoff contract.
 - Generated agents deny external directories except the DevVault root (`DEVVAULT_PATH`, default `%USERPROFILE%\Obsidian\DevVault`), so task agents can maintain their hub note and Home row as the global policy requires.
 - Settings > OpenCode runtime has a 30-second service timeout and a 35-second agent/MCP timeout. While connecting it shows Cancel. A stale child left by a previous crash may require restarting the app.
@@ -188,7 +189,9 @@ Dreamer reads project context, review/done task results, existing memory, projec
 - One chat session per project; sessions and active streaming turns persist in the `chat_sessions` and `chat_stream` SQLite tables, so a restart resumes the thread and can finish a turn that was still running.
 - The autonomous loop auto-accepts results and starts the next dependency. Manual Accept/Reject/Edit remains a fallback.
 - A running task that fails transiently (service down, connection, timeout, session read) is requeued up to `retryCount` 2 before it blocks. Credential, quota, policy, merge, and permission-denial failures block immediately.
-- A blocked task stops the project; the final notification reports the stopped project. There is no automatic infinite retry.
+- A project with a `verifyCommand` gates acceptance: the command runs in the isolated worktree, a pass accepts and merges, a failure blocks the task with the captured output.
+- A project with `scheduleHours` > 0 and a `scheduleGoal` gets at most one scheduled plan per tick when active, due, and idle; `nextRunAt` stores the next due time.
+- Accepting a worktree task records the branch's changed files on the task.
 - Native notifications are final project complete/stopped events and depend on Windows notification permission. The in-app Alerts bell shows task attention states.
 - The app auto-starts at Windows login through the Tauri autostart plugin. Settings → Startup has an enable/disable toggle; the first launch enables it unless the user turns it off. Closing the window still stops the process; a crash or manual exit stops the loop until relaunch.
 - Projects with `autonomy: true` run a phase loop. After all current tasks are done, Dreamer runs, the orchestrator replans the remaining work, and the scheduler continues. The phase limit defaults to 6 (1–20). An empty planner result marks the project complete; a blocked task stops the project.

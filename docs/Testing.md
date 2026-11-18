@@ -193,6 +193,14 @@ Two running tasks maximum, one per owner. Test tasks were removed afterward.
 - 15-second polling remains as fallback because the OpenCode stream is volatile.
 - A Plan-created task started 5.8s after creation, below the 15-second fallback, consistent with event-driven start.
 
+### Tier 2–4 verification
+
+- `ranked_memory_prefers_relevant_entries`: keyword-overlap ranking picks the auth memory over coffee, and falls back to recency with no overlap.
+- `verification_command_passes_and_fails`: `exit 0` passes, `exit 1` fails with output, a missing command reports failure.
+- `concurrency_clamps_between_two_and_six` and `scheduled_plan_due_rules`: env clamp and cadence-due rules.
+- Live, on the packaged build: a chat-created task on the non-git `lt` project streamed assistant text to `workforce_task_stream` on 14/14 samples while running, auto-accepted, and stored its OpenCode session cost ($0.0053) on the task. A chat-created task on the dirty `core` repo blocked at the worktree gate as designed.
+- Live checks still pending in the final regression: the verification gate on a project created with `verifyCommand`, and one full scheduled-plan cycle.
+
 ### Orchestrator chat streaming
 
 - Sent a 300-word story prompt from the packaged release build.

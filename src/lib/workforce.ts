@@ -43,6 +43,9 @@ export interface ProjectInput {
   initGit: boolean;
   autonomy: boolean;
   maxPhases: number;
+  verifyCommand?: string;
+  scheduleHours?: number;
+  scheduleGoal?: string;
 }
 
 export function workforceAvailable(): boolean {
@@ -75,6 +78,9 @@ export function workforceCreateProject(input: ProjectInput): Promise<Snapshot> {
     initGit: input.initGit,
     autonomy: input.autonomy,
     maxPhases: input.maxPhases,
+    verifyCommand: input.verifyCommand ?? "",
+    scheduleHours: input.scheduleHours ?? 0,
+    scheduleGoal: input.scheduleGoal ?? "",
   });
 }
 
@@ -145,6 +151,15 @@ export function workforceChatResume(projectId: string): Promise<{ active: boolea
 
 export function workforceAttachmentData(path: string): Promise<{ data: string }> {
   return invoke<{ data: string }>("workforce_attachment_data", { path });
+}
+
+export interface TaskStream {
+  text: string;
+  running: boolean;
+}
+
+export function workforceTaskStream(taskId: string): Promise<TaskStream> {
+  return invoke<TaskStream>("workforce_task_stream", { taskId });
 }
 
 export function workforceTick(): Promise<Snapshot> {

@@ -56,6 +56,10 @@ export interface Project {
   autonomy?: boolean;
   phase?: number;
   maxPhases?: number;
+  verifyCommand?: string | null;
+  scheduleHours?: number | null;
+  scheduleGoal?: string | null;
+  nextRunAt?: number | null;
 }
 
 export interface Artifact {
@@ -111,6 +115,13 @@ export interface Task {
   worktreeBranch?: string | null;
   requiredMcp?: string[];
   retryCount?: number;
+  cost?: number | null;
+  files?: string[];
+  verification?: {
+    status: "passed" | "failed";
+    at: number;
+    output: string;
+  } | null;
 }
 
 export interface ActivityEvent {
